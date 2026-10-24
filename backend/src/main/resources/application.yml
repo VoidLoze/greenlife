@@ -1,0 +1,123 @@
+server:
+  port: 8080
+  forward-headers-strategy: framework
+  shutdown: graceful
+  compression:
+    enabled: true
+    mime-types: application/json,text/plain
+
+spring:
+  application:
+    name: greenleaf-store
+  threads:
+    virtual:
+      enabled: true
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/greenleaf}
+    username: ${DB_USER:greenleaf}
+    password: ${DB_PASSWORD:greenleaf}
+    hikari:
+      maximum-pool-size: 15
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc.batch_size: 50
+        order_inserts: true
+        order_updates: true
+        default_batch_fetch_size: 50
+  flyway:
+    enabled: true
+  data:
+    redis:
+      repositories:
+        enabled: false
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      timeout: 2s
+  servlet:
+    multipart:
+      max-file-size: 200MB
+      max-request-size: 210MB
+  cache:
+    type: redis
+  jackson:
+    deserialization:
+      fail-on-null-for-primitives: false
+      fail-on-unknown-properties: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+springdoc:
+  swagger-ui:
+    enabled: ${API_DOCS_ENABLED:true}
+    path: /swagger-ui
+  api-docs:
+    enabled: ${API_DOCS_ENABLED:true}
+    path: /v3/api-docs
+
+app:
+  public-url: ${APP_PUBLIC_URL:http://localhost:8080}
+  store:
+    name: Greenleaf
+    phone: ${STORE_PHONE:+77076173928}
+    whatsapp: ${STORE_WHATSAPP:77076173928}
+    telegram-url: ${STORE_TELEGRAM_URL:https://t.me/+5NLkt7yDuxJlZTUy}
+    instagram-url: ${STORE_INSTAGRAM_URL:}
+    city: ${STORE_CITY:г. Алматы}
+    address: ${STORE_ADDRESS:ул. Бонапарта 5}
+    working-hours: ${STORE_WORKING_HOURS:Пн–Сб 10:00–19:00}
+    # Default video on the home page; admins can replace it in "Настройки сайта".
+    company-video-url: ${COMPANY_VIDEO_URL:https://www.youtube.com/watch?v=1g-BeW0y_TE}
+    company-video-title: ${COMPANY_VIDEO_TITLE:История Greenleaf, 25 лет на рынке Китая}
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:3000}
+  jwt:
+    secret: ${JWT_SECRET:change-me-please-this-is-a-dev-only-secret-key-0123456789}
+    issuer: greenleaf-store
+    access-token-ttl: ${JWT_ACCESS_TTL:15m}
+    refresh-token-ttl: ${JWT_REFRESH_TTL:30d}
+    refresh-cookie-name: gl_refresh
+    refresh-cookie-secure: ${REFRESH_COOKIE_SECURE:false}
+  security:
+    login-max-attempts: 5
+    login-lock-duration: 15m
+    register-per-hour: 10
+    orders-per-hour: 15
+  storage:
+    root: ${STORAGE_ROOT:./data/uploads}
+    public-prefix: /uploads
+    thumbnail-width: 520
+  pricing:
+    partner-discount-percent: ${PARTNER_DISCOUNT_PERCENT:50}
+    delivery-fee: ${DELIVERY_FEE:1500}
+    free-delivery-threshold: ${FREE_DELIVERY_THRESHOLD:25000}
+    max-quantity-per-item: 99
+  cart:
+    ttl: 30d
+  views:
+    dedupe-window: 30m
+    flush-interval: 60s
+  admin:
+    email: ${ADMIN_EMAIL:}
+    password: ${ADMIN_PASSWORD:}
+    full-name: ${ADMIN_NAME:Администратор}
+  seed:
+    enabled: ${SEED_ENABLED:true}
+    dir: ${SEED_DIR:../seed}
+
+logging:
+  level:
+    root: INFO
+    kz.greenleaf: INFO
