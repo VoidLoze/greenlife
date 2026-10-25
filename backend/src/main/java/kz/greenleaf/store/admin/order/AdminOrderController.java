@@ -20,9 +20,11 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.security.access.prepost.PreAuthorize;
 
 @RestController
 @RequestMapping("/api/admin/orders")
+@PreAuthorize("hasRole('ADMIN')")
 @Tag(name = "Admin: orders")
 public class AdminOrderController {
 
@@ -50,7 +52,7 @@ public class AdminOrderController {
     @PatchMapping("/{id}/status")
     public OrderDto changeStatus(@PathVariable Long id, @Valid @RequestBody StatusUpdateRequest request,
                                  @AuthenticationPrincipal AuthPrincipal principal) {
-        return service.changeStatus(id, request.status(), request.note(), principal.id());
+        return service.changeStatus(id, request.status(), request.note(), principal.id(), request.restock());
     }
 
     @PatchMapping("/{id}/note")

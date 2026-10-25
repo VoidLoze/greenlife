@@ -29,6 +29,8 @@ export function fileSize(bytes: number): string {
 /** Formats any input into "+7 707 617 39 28" as the user types. */
 export function formatPhone(raw: string): string {
   let digits = raw.replace(/\D/g, '')
+  // A pasted or autofilled local number ("707 617 39 28") has no country code yet.
+  if (digits.length === 10 && !raw.includes('+')) digits = '7' + digits
   if (digits.startsWith('8')) digits = '7' + digits.slice(1)
   if (!digits.startsWith('7')) digits = '7' + digits
   digits = digits.slice(0, 11)

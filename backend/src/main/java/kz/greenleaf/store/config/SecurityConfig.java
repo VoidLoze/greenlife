@@ -1,8 +1,11 @@
 package kz.greenleaf.store.config;
 
 import java.io.IOException;
+import java.net.URI;
 import java.time.Clock;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import kz.greenleaf.store.auth.JwtAuthenticationFilter;
 import kz.greenleaf.store.common.GlobalExceptionHandler;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
@@ -55,8 +58,9 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/catalog/products/*/view").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/cart/quote").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/orders").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/orders/track/**").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/orders/track").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/settings/public").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/seo/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/uploads/**").permitAll()
                         .requestMatchers(HttpMethod.HEAD, "/uploads/**").permitAll()
                         .requestMatchers("/actuator/health/**", "/actuator/info").permitAll()
@@ -87,8 +91,22 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource(AppProperties properties) {
         CorsConfiguration config = new CorsConfiguration();
-        List<String> origins = properties.cors().allowedOrigins();
-        config.setAllowedOrigins(origins == null ? List.of() : origins);
+        // The site's own public address is always allowed, so forgetting it in CORS_ALLOWED_ORIGINS cannot turn
+        // every login, checkout and admin save on the real domain into "403 Invalid CORS request".
+        Set<String> origins = new LinkedHashSet<>();
+        if (properties.cors().allowedOrigins() != null) {
+            origins.addAll(properties.cors().allowedOrigins());
+        }
+        String publicOrigin = originOf(properties.publicUrl());
+        if (publicOrigin != null) {
+            origins.add(publicOrigin);
+            if (publicOrigin.contains("://www.")) {
+                origins.add(publicOrigin.replace("://www.", "://"));
+            } else {
+                origins.add(publicOrigin.replace("://", "://www."));
+            }
+        }
+        config.setAllowedOrigins(List.copyOf(origins));
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Requested-With"));
         config.setAllowCredentials(true);
@@ -114,6 +132,19 @@ public class SecurityConfig {
     @Bean
     public Clock clock() {
         return Clock.systemUTC();
+    }
+
+    static String originOf(String url) {
+        try {
+            URI uri = URI.create(url.trim());
+            if (uri.getScheme() == null || uri.getHost() == null) {
+                return null;
+            }
+            return uri.getScheme().toLowerCase() + "://" + uri.getHost().toLowerCase()
+                    + (uri.getPort() == -1 ? "" : ":" + uri.getPort());
+        } catch (IllegalArgumentException ex) {
+            return null;
+        }
     }
 
     private static void writeProblem(jakarta.servlet.http.HttpServletResponse response, JsonMapper mapper,

@@ -1,12 +1,16 @@
+import { useEffect } from 'react'
 import { Link } from 'react-router'
 import { useQuery } from '@tanstack/react-query'
 import { catalogApi } from '@/api/endpoints'
 import type { ProductCard } from '@/api/types'
 import { ProductGrid, ProductRail } from '@/components/ProductCard'
+import { RecentlyViewed } from '@/components/SavedProducts'
+import { CardGiftBanner, DeliveryNote, Marquee } from '@/components/Promo'
+import { MARQUEE_TEXT, PARTNERSHIP_FORMULA } from '@/content/promo'
 import { VideoPlayer } from '@/components/VideoPlayer'
 import { useT } from '@/i18n'
 import { categoryIcon } from '@/lib/categoryIcon'
-import { useDocumentTitle, useSettings } from '@/lib/hooks'
+import { useSettings } from '@/lib/hooks'
 
 function Section({ eyebrow, title, link, products }: { eyebrow: string; title: string; link: string; products: ProductCard[] }) {
   const { t } = useT()
@@ -31,12 +35,16 @@ export default function HomePage() {
   const { t, pick } = useT()
   const { data, isLoading } = useQuery({ queryKey: ['home'], queryFn: catalogApi.home })
   const { data: settings } = useSettings()
-  useDocumentTitle('Главная')
+  useEffect(() => {
+    document.title = 'Greenleaf family — Born for Beauty'
+  }, [])
 
-  const discount = settings?.partnerDiscountPercent
+  const discount = settings?.partnerDiscountPercent || 50
 
   return (
     <>
+      <Marquee text={MARQUEE_TEXT} to="/partner" />
+
       <section className="home-hero">
         <div className="home-logo">
           <img src="/logo-full.webp" alt="Greenleaf family — Born for Beauty" width={1600} height={266} fetchPriority="high" />
@@ -75,16 +83,34 @@ export default function HomePage() {
             </span>
             <span className="home-entry-body">
               <strong>{t.partner}</strong>
-              <small>{t.partnerTileText}</small>
-              {discount ? (
-                <em className="home-entry-badge">
-                  {t.partnerDiscountLine} {discount}%
-                </em>
-              ) : null}
+              <span className="partner-formula">
+                <span className="formula-label">
+                  Партнёрство =
+                </span>
+                <span className="formula-part">
+                  <b>{discount}%</b>
+                  <span>
+                    {PARTNERSHIP_FORMULA.discount}
+                    <em>{PARTNERSHIP_FORMULA.discountNote}</em>
+                  </span>
+                </span>
+                <span className="formula-plus">
+                  +
+                </span>
+                <span className="formula-part gift">
+                  <b>🎁</b>
+                  <span>
+                    {PARTNERSHIP_FORMULA.gift}
+                    <em>{PARTNERSHIP_FORMULA.giftNote}</em>
+                  </span>
+                </span>
+              </span>
             </span>
             <span className="home-entry-cta">{t.morePartner} →</span>
           </Link>
         </div>
+
+        <DeliveryNote />
       </section>
 
       {data && data.categories.length > 0 && (
@@ -108,8 +134,11 @@ export default function HomePage() {
               </Link>
             ))}
           </div>
+          <CardGiftBanner className="wide" />
         </section>
       )}
+
+      <RecentlyViewed />
 
       {isLoading ? (
         <section className="section">

@@ -24,7 +24,7 @@ export default function OrdersPage() {
     status: (params.get('status') as OrderStatus) ?? '',
     from: params.get('from') ?? '',
     to: params.get('to') ?? '',
-    page: Math.max(0, Number(params.get('page') ?? 1) - 1),
+    page: Math.max(0, (Number.parseInt(params.get('page') ?? '1', 10) || 1) - 1),
   }
 
   const setParam = (key: string, value?: string) => {
@@ -47,6 +47,11 @@ export default function OrdersPage() {
   })
   const data = list.data
 
+  useEffect(() => {
+    if (data && data.totalPages > 0 && filter.page + 1 > data.totalPages) setParam('page', data.totalPages > 1 ? String(data.totalPages) : undefined)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data?.totalPages, filter.page])
+
   return (
     <>
       <AdminHead eyebrow="Продажи" title={`Заказы${data ? ` · ${data.totalItems}` : ''}`}>
@@ -55,9 +60,17 @@ export default function OrdersPage() {
 
       <div className="filter-bar">
         <input className="input grow" placeholder="Номер, имя, телефон или email…" value={q} onChange={(e) => setQ(e.target.value)} />
-        <input className="input" type="date" value={filter.from} onChange={(e) => setParam('from', e.target.value)} aria-label="С даты" />
-        <input className="input" type="date" value={filter.to} onChange={(e) => setParam('to', e.target.value)} aria-label="По дату" />
+        <input className="input" type="date" value={filter.from} max={filter.to || undefined} onChange={(e) => setParam('from', e.target.value)} aria-label="С даты" />
+        <input className="input" type="date" value={filter.to} min={filter.from || undefined} onChange={(e) => setParam('to', e.target.value)} aria-label="По дату" />
       </div>
+      {filter.from && filter.to && filter.from > filter.to && (
+        <div className="notice error" style={{ marginBottom: 12 }}>
+          Дата «с» позже даты «по» — заказов не найдётся.{' '}
+          <button type="button" className="link-btn" onClick={() => setParams(new URLSearchParams({ ...Object.fromEntries(params), from: filter.to, to: filter.from }), { replace: true })}>
+            Поменять местами
+          </button>
+        </div>
+      )}
       <div className="row wrap" style={{ marginBottom: 14 }}>
         <button type="button" className={`chip ${!filter.status ? 'active' : ''}`} onClick={() => setParam('status')}>
           Все
@@ -85,7 +98,7 @@ export default function OrdersPage() {
                 <th>Клиент</th>
                 <th>Получение</th>
                 <th>Статус</th>
-                <th className="num">Позиций</th>
+                <th className="num">Товаров, шт.</th>
                 <th className="num">Сумма</th>
               </tr>
             </thead>

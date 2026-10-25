@@ -19,6 +19,8 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     long countByRole(Role role);
 
+    long countByRoleAndEnabled(Role role, boolean enabled);
+
     @Query("""
             select u from User u
             where (:q is null or lower(u.email) like lower(concat('%', :q, '%'))

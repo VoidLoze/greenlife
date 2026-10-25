@@ -1,5 +1,7 @@
-import { useEffect, type ReactNode } from 'react'
+import { useEffect, useRef, type InputHTMLAttributes, type ReactNode, type RefObject } from 'react'
+import { createPortal } from 'react-dom'
 import clsx from 'clsx'
+import { formatPhone } from '@/lib/format'
 import { useScrollLock } from '@/lib/hooks'
 import { useToastStore } from '@/store/toast'
 import { CloseIcon } from './Icons'
@@ -122,34 +124,42 @@ export function Modal({
   onClose,
   children,
   wide,
+  dirty,
 }: {
   open: boolean
   title: ReactNode
   onClose: () => void
   children: ReactNode
   wide?: boolean
+  /** The form inside has unsaved input: closing by backdrop/Esc/× asks first. */
+  dirty?: boolean
 }) {
   useScrollLock(open)
-  useEffect(() => {
-    if (!open) return
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [open, onClose])
+  const box = useRef<HTMLDivElement>(null)
+  // A stray click on the backdrop or Esc must not throw away what was typed into the form.
+  const dismiss = () => {
+    if (dirty && !window.confirm('Закрыть без сохранения? Введённые данные пропадут.')) return
+    onClose()
+  }
+  const dismissRef = useRef(dismiss)
+  dismissRef.current = dismiss
+  useFocusTrap(box, open, () => dismissRef.current())
   if (!open) return null
-  return (
+  // On <body>: inside a .panel (backdrop-filter) a fixed window is clipped to the panel and sits under the sticky header.
+  return createPortal(
     <>
-      <div className="overlay" onClick={onClose} />
-      <div className="modal" role="dialog" aria-modal="true" style={wide ? { width: 'min(900px, calc(100vw - 32px))' } : undefined}>
+      <div className="overlay" onClick={dismiss} />
+      <div ref={box} className="modal" role="dialog" aria-modal="true" tabIndex={-1} style={wide ? { width: 'min(900px, calc(100vw - 32px))' } : undefined}>
         <div className="modal-head">
           <h3>{title}</h3>
-          <button type="button" className="close-btn" onClick={onClose} aria-label="Закрыть">
+          <button type="button" className="close-btn" onClick={dismiss} aria-label="Закрыть">
             <CloseIcon size={18} />
           </button>
         </div>
         {children}
       </div>
-    </>
+    </>,
+    document.body,
   )
 }
 
@@ -189,5 +199,94 @@ export function Field({
       {children}
       {error ? <span className="error">{error}</span> : hint ? <small>{hint}</small> : null}
     </label>
+  )
+}
+
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
+/**
+ * Keeps keyboard focus inside a dialog while it is open (Tab cycles, Esc closes) and returns it to the element that
+ * opened the dialog afterwards.
+ */
+export function useFocusTrap(ref: RefObject<HTMLElement | null>, active: boolean, onEscape: () => void) {
+  const escape = useRef(onEscape)
+  escape.current = onEscape
+  useEffect(() => {
+    if (!active) return
+    const opener = document.activeElement as HTMLElement | null
+    const node = ref.current
+    if (node && !node.contains(document.activeElement)) {
+      const first = node.querySelector<HTMLElement>('[autofocus]') ?? node
+      first.focus({ preventScroll: true })
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation()
+        escape.current()
+        return
+      }
+      if (e.key !== 'Tab' || !ref.current) return
+      const items = Array.from(ref.current.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((el) => el.offsetParent !== null)
+      if (!items.length) return
+      const first = items[0]
+      const last = items[items.length - 1]
+      if (e.shiftKey && (document.activeElement === first || document.activeElement === ref.current)) {
+        e.preventDefault()
+        last.focus()
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault()
+        first.focus()
+      }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      if (opener && document.contains(opener)) opener.focus({ preventScroll: true })
+    }
+  }, [ref, active])
+}
+
+/**
+ * Phone field for Kazakhstan numbers. "+7 " is put in on focus, so the first digit typed is the start of the number:
+ * typing 707… gives +7 707…, not +7 07…. A leading 8 (the old trunk prefix) is dropped.
+ */
+export function PhoneInput({
+  value,
+  onChange,
+  className,
+  ...rest
+}: { value: string; onChange: (value: string) => void } & Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange'>) {
+  return (
+    <input
+      {...rest}
+      className={className ?? 'input'}
+      type="tel"
+      inputMode="tel"
+      autoComplete={rest.autoComplete ?? 'tel'}
+      placeholder={rest.placeholder ?? '+7 7__ ___ __ __'}
+      value={value}
+      onFocus={(e) => {
+        if (!value) onChange('+7 ')
+        rest.onFocus?.(e)
+      }}
+      onBlur={(e) => {
+        if (value.replace(/\D/g, '').length <= 1) onChange('')
+        rest.onBlur?.(e)
+      }}
+      onChange={(e) => {
+        const raw = e.target.value
+        const digits = raw.replace(/\D/g, '')
+        if (digits.length <= 1 && raw.trim().startsWith('+')) {
+          onChange('+7 ')
+          return
+        }
+        const national = raw.trim().startsWith('+7') ? raw.trim().slice(2).replace(/\D/g, '') : null
+        if (national != null && national.startsWith('8')) {
+          onChange(formatPhone('+7' + national.slice(1)))
+          return
+        }
+        onChange(raw ? formatPhone(raw) : '')
+      }}
+    />
   )
 }

@@ -16,7 +16,7 @@ export const productStatusBadge: Record<ProductStatus, string> = {
 export const orderStatusLabel: Record<OrderStatus, string> = {
   NEW: 'Новый',
   CONFIRMED: 'Подтверждён',
-  SHIPPED: 'Отправлен',
+  SHIPPED: 'Передан в доставку',
   COMPLETED: 'Выполнен',
   CANCELLED: 'Отменён',
 }
@@ -97,5 +97,16 @@ export const nullIfBlank = (value: string | null | undefined) => (value && value
 export const numberOrNull = (value: string) => {
   if (value.trim() === '') return null
   const n = Number(value.replace(',', '.').replace(/\s/g, ''))
+  return Number.isFinite(n) ? n : null
+}
+
+/**
+ * Tenge amounts are whole numbers, but people type them as "12 500", "12,500" or "12.500": a separator followed by
+ * exactly three digits is a thousands separator, not a decimal point.
+ */
+export const moneyOrNull = (value: string) => {
+  const compact = value.replace(/[\s\u00a0']/g, '')
+  if (compact === '') return null
+  const n = Number(compact.replace(/[.,](?=\d{3}(?:[.,]|$))/g, '').replace(',', '.'))
   return Number.isFinite(n) ? n : null
 }

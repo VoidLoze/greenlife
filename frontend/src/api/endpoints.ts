@@ -13,6 +13,7 @@ import type {
   OrderSummary,
   Page,
   ProductDetail,
+  ProductCard,
   PublicSettings,
   Quote,
   Related,
@@ -68,11 +69,12 @@ export const catalogApi = {
   product: (slug: string) => data(api.get<ProductDetail>(`/catalog/products/${encodeURIComponent(slug)}`)),
   related: (slug: string) => data(api.get<Related>(`/catalog/products/${encodeURIComponent(slug)}/related`)),
   view: (slug: string) => api.post(`/catalog/products/${encodeURIComponent(slug)}/view`).catch(() => undefined),
+  cards: (ids: number[]) => data(api.get<ProductCard[]>('/catalog/cards', { params: { ids: ids.join(',') } })),
 }
 
 export const authApi = {
   login: (email: string, password: string) => data(api.post<AuthResponse>('/auth/login', { email, password })),
-  register: (body: { email: string; password: string; fullName: string; phone?: string }) =>
+  register: (body: { email: string; password: string; fullName: string; phone?: string; consent: boolean }) =>
     data(api.post<AuthResponse>('/auth/register', body)),
   logout: () => api.post('/auth/logout'),
   logoutAll: () => api.post('/auth/logout-all'),
@@ -96,5 +98,5 @@ export const ordersApi = {
   myOrder: (number: string) => data(api.get<Order>(`/orders/my/${encodeURIComponent(number)}`)),
   whatsapp: (number: string) => data(api.get<{ url: string }>(`/orders/my/${encodeURIComponent(number)}/whatsapp`)),
   track: (number: string, phone: string) =>
-    data(api.get<Order>(`/orders/track/${encodeURIComponent(number.trim())}`, { params: { phone } })),
+    data(api.post<Order>('/orders/track', { number: number.trim(), phone })),
 }

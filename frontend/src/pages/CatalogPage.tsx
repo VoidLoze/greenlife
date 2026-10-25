@@ -6,11 +6,12 @@ import { catalogApi, type CatalogFilters } from '@/api/endpoints'
 import type { Category, Facets, FacetValue, PriceBucket } from '@/api/types'
 import { ChevronDown, FilterIcon } from '@/components/Icons'
 import { ProductGrid } from '@/components/ProductCard'
+import { CardGiftBanner } from '@/components/Promo'
 import { Select, type SelectOption } from '@/components/Select'
 import { EmptyState, Pagination, Spinner } from '@/components/ui'
 import { useT } from '@/i18n'
 import { categoryIcon } from '@/lib/categoryIcon'
-import { money, pluralRu } from '@/lib/format'
+import { money } from '@/lib/format'
 import { useDocumentTitle } from '@/lib/hooks'
 
 const PAGE_SIZE = 24
@@ -263,7 +264,7 @@ export default function CatalogPage() {
         ? pick(singleCategory.nameRu, singleCategory.nameKk)
         : t.catalog
   const eyebrow = filters.q ? t.searchResults : singleType && singleCategory ? pick(singleCategory.nameRu, singleCategory.nameKk) : 'Greenleaf'
-  useDocumentTitle(filters.q ? `Поиск: ${filters.q}` : title)
+  useDocumentTitle(filters.q ? `${t.searchTitle}: ${filters.q}` : title)
 
   const update = (mutate: (next: URLSearchParams) => void, keepPage = false) => {
     const next = new URLSearchParams(params)
@@ -374,9 +375,10 @@ export default function CatalogPage() {
           <span className="eyebrow">{eyebrow}</span>
           <h1>{title}</h1>
           <p className="muted" style={{ marginTop: 8 }}>
-            {results.isLoading ? '…' : `${t.found}: ${total} ${pluralRu(total, 'товар', 'товара', 'товаров')}`}
+            {results.isLoading ? '…' : `${t.found}: ${t.countProducts(total)}`}
           </p>
         </div>
+        <CardGiftBanner />
       </div>
 
       {categories && (
@@ -486,6 +488,16 @@ export default function CatalogPage() {
               {t.resetFilters}
             </button>
           )}
+          <button
+            type="button"
+            className="btn btn-gold filters-done"
+            onClick={() => {
+              setFiltersOpen(false)
+              document.querySelector('.catalog-layout .toolbar')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+            }}
+          >
+            {t.showProducts(total)}
+          </button>
         </aside>
 
         <div>
@@ -513,7 +525,7 @@ export default function CatalogPage() {
           </div>
 
           {results.isError ? (
-            <div className="notice error">Не удалось загрузить каталог. Обновите страницу.</div>
+            <div className="notice error">{t.catalogLoadFailed}</div>
           ) : data && data.items.length === 0 ? (
             <div className="panel">
               <EmptyState

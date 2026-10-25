@@ -18,8 +18,17 @@ export function Highlight({ text, query }: { text: string; query: string }) {
       .filter((w) => w.length >= 1)
       .sort((a, b) => b.length - a.length)
     if (!words.length) return [text]
-    const pattern = new RegExp(`(?<![\\p{L}\\p{N}])(${words.map(escapeRegExp).join('|')})`, 'giu')
-    return text.split(pattern)
+    // Captures the character before the match instead of a lookbehind, which Safari before 16.4 cannot parse.
+    const pattern = new RegExp(`(^|[^\\p{L}\\p{N}])(${words.map(escapeRegExp).join('|')})`, 'giu')
+    const out: string[] = []
+    let last = 0
+    for (const m of text.matchAll(pattern)) {
+      const start = (m.index ?? 0) + m[1].length
+      out.push(text.slice(last, start), m[2])
+      last = start + m[2].length
+    }
+    out.push(text.slice(last))
+    return out
   }, [text, query])
 
   if (parts.length === 1) return <>{text}</>

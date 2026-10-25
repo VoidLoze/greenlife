@@ -9,10 +9,12 @@ import { BuyBox } from '@/components/BuyBox'
 import { Lightbox } from '@/components/Lightbox'
 import { MediaCarousel, productSlides, screenshotSlides, type Slide } from '@/components/MediaCarousel'
 import { ProductRail } from '@/components/ProductCard'
+import { RecentlyViewed } from '@/components/SavedProducts'
 import { EmptyState, PageLoader } from '@/components/ui'
 import { useT } from '@/i18n'
 import { fileSize } from '@/lib/format'
-import { useDocumentTitle } from '@/lib/hooks'
+import { useDocumentTitle, useMetaDescription, useNoIndex } from '@/lib/hooks'
+import { useFavoritesStore } from '@/store/favorites'
 
 function extensionOf(media: Media) {
   const name = media.originalFilename ?? media.url
@@ -70,7 +72,7 @@ function Gallery({ product }: { product: ProductDetail }) {
                 <span className="doc-icon">{extensionOf(doc)}</span>
               )}
               <span style={{ flex: 1, minWidth: 0 }}>
-                <strong>{doc.title ?? doc.originalFilename ?? 'Документ'}</strong>
+                <strong>{doc.title ?? doc.originalFilename ?? t.document}</strong>
                 {doc.description && <p>{doc.description}</p>}
               </span>
               <span className="muted small nowrap">{fileSize(doc.sizeBytes)}</span>
@@ -100,11 +102,14 @@ export default function ProductPage() {
   const viewed = useRef<string | null>(null)
 
   useDocumentTitle(product.data ? pick(product.data.card.nameRu, product.data.card.nameKk) : undefined)
+  useMetaDescription(product.data ? pick(product.data.card.summaryRu, product.data.card.summaryKk) : null)
+  useNoIndex(product.isError)
 
   useEffect(() => {
     if (product.data && viewed.current !== slug) {
       viewed.current = slug
       void catalogApi.view(slug)
+      useFavoritesStore.getState().addViewed(product.data.card.id)
     }
   }, [product.data, slug])
 
@@ -114,8 +119,8 @@ export default function ProductPage() {
     return (
       <EmptyState
         icon="🌿"
-        title={notFound ? 'Товар не найден' : 'Не удалось загрузить товар'}
-        text={notFound ? 'Возможно, он снят с продажи или ссылка устарела.' : 'Проверьте соединение и попробуйте ещё раз.'}
+        title={notFound ? t.productNotFound : t.productLoadFailed}
+        text={notFound ? t.productGoneHint : t.checkConnection}
         action={
           <Link to="/catalog" className="btn btn-primary">
             {t.goToCatalog}
@@ -247,6 +252,7 @@ export default function ProductPage() {
           <ProductRail products={related.data.similar} />
         </section>
       )}
+      <RecentlyViewed excludeId={card.id} />
     </>
   )
 }

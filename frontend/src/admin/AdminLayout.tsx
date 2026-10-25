@@ -1,11 +1,56 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router'
 import { useQuery } from '@tanstack/react-query'
+import '@/styles/admin.css'
 import clsx from 'clsx'
 import { adminApi } from '@/api/admin'
 import { BrandLogo } from '@/components/Brand'
 import { MenuIcon } from '@/components/Icons'
 import { useAuthStore } from '@/store/auth'
+import { toast } from '@/store/toast'
+
+const COUNTER = /^\(\d+\) /
+
+/** Keeps "(3) " in front of whatever title the current page sets, so new orders are visible from another tab. */
+function useTitleCounter(count: number) {
+  useEffect(() => {
+    const apply = () => {
+      const base = document.title.replace(COUNTER, '')
+      const next = count > 0 ? `(${count}) ${base}` : base
+      if (document.title !== next) document.title = next
+    }
+    apply()
+    const title = document.querySelector('title')
+    if (!title) return
+    const observer = new MutationObserver(apply)
+    observer.observe(title, { childList: true, characterData: true, subtree: true })
+    return () => {
+      observer.disconnect()
+      document.title = document.title.replace(COUNTER, '')
+    }
+  }, [count])
+}
+
+function chime() {
+  try {
+    const ctx = new AudioContext()
+    const gain = ctx.createGain()
+    gain.connect(ctx.destination)
+    gain.gain.setValueAtTime(0.0001, ctx.currentTime)
+    gain.gain.exponentialRampToValueAtTime(0.25, ctx.currentTime + 0.02)
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.9)
+    for (const [freq, at] of [[880, 0], [1320, 0.18]] as const) {
+      const osc = ctx.createOscillator()
+      osc.frequency.value = freq
+      osc.connect(gain)
+      osc.start(ctx.currentTime + at)
+      osc.stop(ctx.currentTime + 0.9)
+    }
+    window.setTimeout(() => void ctx.close(), 1200)
+  } catch {
+    /* sound is a nicety; browsers may block it until the page is clicked */
+  }
+}
 
 const NAV = [
   { to: '/admin', label: 'Дашборд', icon: '◧', end: true },
@@ -23,8 +68,26 @@ export default function AdminLayout() {
   const navigate = useNavigate()
   const user = useAuthStore((s) => s.user)
   const logout = useAuthStore((s) => s.logout)
-  const { data: dashboard } = useQuery({ queryKey: ['admin', 'dashboard'], queryFn: adminApi.dashboard, refetchInterval: 60_000 })
+  const { data: dashboard } = useQuery({
+    queryKey: ['admin', 'dashboard'],
+    queryFn: adminApi.dashboard,
+    refetchInterval: 30_000,
+    refetchIntervalInBackground: true,
+  })
   const newOrders = dashboard?.counters.ordersNew ?? 0
+  const seen = useRef<number | null>(null)
+
+  useTitleCounter(newOrders)
+
+  useEffect(() => {
+    if (!dashboard) return
+    const before = seen.current
+    seen.current = newOrders
+    if (before != null && newOrders > before) {
+      chime()
+      toast.success(newOrders - before === 1 ? 'Новый заказ!' : `Новых заказов: ${newOrders - before}`)
+    }
+  }, [dashboard, newOrders])
 
   useEffect(() => setOpen(false), [location.pathname])
 

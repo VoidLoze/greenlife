@@ -6,7 +6,9 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.CannotAcquireLockException;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
@@ -90,9 +92,23 @@ public class GlobalExceptionHandler {
                 "Данные были изменены другим пользователем. Обновите страницу и повторите.");
     }
 
+    /** Two checkouts locking the same products, or a row held by another admin: the client may simply retry. */
+    @ExceptionHandler({PessimisticLockingFailureException.class, CannotAcquireLockException.class})
+    public ProblemDetail handleLock(Exception ex) {
+        log.info("Lock conflict: {}", ex.getMessage());
+        return problem(HttpStatus.CONFLICT, "busy_retry", "Сервер был занят другим заказом — нажмите ещё раз");
+    }
+
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ProblemDetail handleIntegrity(DataIntegrityViolationException ex) {
-        log.warn("Data integrity violation: {}", ex.getMostSpecificCause().getMessage());
+        // Only the constraint name: the database message would put customer data (emails, phones) into the log.
+        String constraint = ex.getMostSpecificCause() instanceof java.sql.SQLException sql
+                ? sql.getSQLState() : ex.getMostSpecificCause().getClass().getSimpleName();
+        log.warn("Data integrity violation (SQLState {})", constraint);
+        if (String.valueOf(ex.getMessage()).contains("orders_idempotency_idx")) {
+            return problem(HttpStatus.CONFLICT, "order_in_progress",
+                    "Этот заказ уже оформляется — подождите пару секунд и проверьте «Мои заказы» или WhatsApp");
+        }
         return problem(HttpStatus.CONFLICT, "integrity_violation", "Запись конфликтует с существующими данными");
     }
 
@@ -103,7 +119,8 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(MaxUploadSizeExceededException.class)
     public ProblemDetail handleUploadSize(MaxUploadSizeExceededException ex) {
-        return problem(HttpStatus.CONTENT_TOO_LARGE, "file_too_large", "Файл слишком большой (максимум 25 МБ)");
+        return problem(HttpStatus.CONTENT_TOO_LARGE, "file_too_large",
+                "Файл слишком большой: фото и документы — до 25 МБ, видео — до 200 МБ");
     }
 
     @ExceptionHandler(NoResourceFoundException.class)

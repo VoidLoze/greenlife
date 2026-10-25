@@ -15,8 +15,8 @@ import kz.greenleaf.store.catalog.dto.CatalogDtos.MediaDto;
 import kz.greenleaf.store.catalog.dto.CatalogDtos.ProductCardDto;
 import kz.greenleaf.store.catalog.dto.CatalogDtos.ProductDetailDto;
 import kz.greenleaf.store.catalog.dto.CatalogDtos.TypeRef;
-import kz.greenleaf.store.config.AppProperties;
 import kz.greenleaf.store.media.MediaUrls;
+import kz.greenleaf.store.site.StoreSettingsService;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -25,11 +25,11 @@ public class ProductMapper {
     public static final int LOW_STOCK_THRESHOLD = 5;
 
     private final MediaUrls urls;
-    private final int partnerDiscountPercent;
+    private final StoreSettingsService settings;
 
-    public ProductMapper(MediaUrls urls, AppProperties properties) {
+    public ProductMapper(MediaUrls urls, StoreSettingsService settings) {
         this.urls = urls;
-        this.partnerDiscountPercent = properties.pricing().partnerDiscountPercent();
+        this.settings = settings;
     }
 
     public ProductCardDto toCard(Product p) {
@@ -37,7 +37,7 @@ public class ProductMapper {
         return new ProductCardDto(
                 p.getId(), p.getSlug(), p.getSku(), p.getNameRu(), p.getNameKk(), p.getSummaryRu(), p.getSummaryKk(),
                 brandRef(p.getBrand()), categoryRef(p.getCategory()), typeRef(p.getType()),
-                p.getPrice(), p.effectivePartnerPrice(partnerDiscountPercent), p.getOldPrice(), p.getCurrency(),
+                p.getPrice(), p.effectivePartnerPrice(settings.current().partnerDiscountPercent()), p.getOldPrice(), p.getCurrency(),
                 p.getVolume(), p.getBadge(),
                 urls.url(p.getCoverKey()), urls.url(p.getCoverThumbKey() != null ? p.getCoverThumbKey() : p.getCoverKey()),
                 p.isInStock(), stock != null && stock > 0 && stock <= LOW_STOCK_THRESHOLD, p.isFeatured(), p.getStatus());

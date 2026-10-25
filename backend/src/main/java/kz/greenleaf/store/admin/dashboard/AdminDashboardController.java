@@ -20,9 +20,11 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.security.access.prepost.PreAuthorize;
 
 @RestController
 @RequestMapping("/api/admin/dashboard")
+@PreAuthorize("hasRole('ADMIN')")
 @Tag(name = "Admin: dashboard")
 public class AdminDashboardController {
 
@@ -84,21 +86,29 @@ public class AdminDashboardController {
                 from orders
                 """);
         Map<String, Object> u = jdbc.queryForMap("""
-                select count(*) as users, count(*) filter (where partner) as partners from users
+                select count(*) filter (where role = 'USER') as users,
+                       count(*) filter (where partner and role = 'USER') as partners
+                from users
                 """);
         return new Counters(num(p, "published"), num(p, "draft"), num(p, "archived"), num(p, "no_photo"),
                 num(o, "new_orders"), num(o, "in_progress"), num(o, "total"), num(u, "users"), num(u, "partners"));
     }
 
     private Revenue revenue() {
+        // Same calendar days (Almaty) and the same statuses as the chart, so the card equals the sum of the bars.
+        // Only orders the manager confirmed count as revenue; unconfirmed NEW ones may still be cancelled.
         Map<String, Object> r = jdbc.queryForMap("""
-                select coalesce(sum(total) filter (where created_at >= now() - interval '30 days'), 0) as revenue,
-                       count(*) filter (where created_at >= now() - interval '30 days') as orders,
-                       coalesce(sum(total) filter (where created_at < now() - interval '30 days'), 0) as prev_revenue,
-                       count(*) filter (where created_at < now() - interval '30 days') as prev_orders
-                from orders
-                where status <> 'CANCELLED' and created_at >= now() - interval '60 days'
-                """);
+                with bounds as (
+                    select (now() at time zone 'Asia/Almaty')::date - (? - 1) as start_day
+                )
+                select coalesce(sum(total) filter (where local_day >= b.start_day), 0) as revenue,
+                       count(*) filter (where local_day >= b.start_day) as orders,
+                       coalesce(sum(total) filter (where local_day < b.start_day), 0) as prev_revenue,
+                       count(*) filter (where local_day < b.start_day) as prev_orders
+                from (select total, (created_at at time zone 'Asia/Almaty')::date as local_day from orders
+                      where status in ('CONFIRMED', 'SHIPPED', 'COMPLETED')) o, bounds b
+                where local_day >= b.start_day - ?
+                """, DAYS, DAYS);
         BigDecimal revenue = (BigDecimal) r.get("revenue");
         long count = num(r, "orders");
         BigDecimal average = count == 0 ? BigDecimal.ZERO
@@ -114,7 +124,7 @@ public class AdminDashboardController {
                 from generate_series((now() at time zone 'Asia/Almaty')::date - (?::int - 1),
                                      (now() at time zone 'Asia/Almaty')::date, interval '1 day') d
                 left join orders o on (o.created_at at time zone 'Asia/Almaty')::date = d::date
-                                  and o.status <> 'CANCELLED'
+                                  and o.status in ('CONFIRMED', 'SHIPPED', 'COMPLETED')
                 group by d
                 order by d
                 """, rs -> {
@@ -147,7 +157,7 @@ public class AdminDashboardController {
     }
 
     private List<OrderSummaryDto> recentOrders() {
-        return orders.findAll(PageRequest.of(0, 8, Sort.by(Sort.Direction.DESC, "createdAt")))
+        return orders.findAll(PageRequest.of(0, 8, Sort.by(Sort.Direction.DESC, "createdAt").and(Sort.by(Sort.Direction.DESC, "id"))))
                 .map(orderMapper::toSummary)
                 .getContent();
     }

@@ -41,6 +41,8 @@ public class AuthService {
     private static final Duration ROTATION_GRACE = Duration.ofSeconds(20);
     private static final Duration LOGIN_IP_WINDOW = Duration.ofMinutes(15);
     private static final int LOGIN_IP_LIMIT = 40;
+    /** Caps password spraying at one account from many addresses without letting a stranger lock its owner out. */
+    private static final int LOGIN_EMAIL_LIMIT = 100;
 
     private final UserRepository users;
     private final RefreshTokenRepository refreshTokens;
@@ -72,6 +74,9 @@ public class AuthService {
     public AuthResult register(RegisterRequest request, ClientInfo client) {
         rateLimiter.acquireOrThrow("register:" + client.ip(), props.security().registerPerHour(), Duration.ofHours(1),
                 "Слишком много регистраций с вашего адреса. Попробуйте позже.");
+        if (!request.consent()) {
+            throw ApiException.badRequest("consent_required", "Подтвердите согласие на обработку персональных данных");
+        }
         String email = normalizeEmail(request.email());
         if (users.existsByEmail(email)) {
             throw ApiException.conflict("email_taken", "Пользователь с таким email уже зарегистрирован");
@@ -87,24 +92,27 @@ public class AuthService {
     @Transactional
     public AuthResult login(LoginRequest request, ClientInfo client) {
         String email = normalizeEmail(request.email());
-        String emailBucket = "login:" + email;
+        // The lockout is per email *and* address: a stranger's wrong guesses cannot lock the owner out.
+        String attemptBucket = "login:" + email + ":" + client.ip();
         rateLimiter.acquireOrThrow("login-ip:" + client.ip(), LOGIN_IP_LIMIT, LOGIN_IP_WINDOW,
                 "Слишком много попыток входа. Попробуйте позже.");
-        if (rateLimiter.count(emailBucket) >= props.security().loginMaxAttempts()) {
-            long minutes = Math.max(1, rateLimiter.ttl(emailBucket).toMinutes());
-            throw ApiException.tooManyRequests("Аккаунт временно заблокирован из-за неудачных попыток входа. Повторите через " + minutes + " мин.");
+        rateLimiter.acquireOrThrow("login-email:" + email, LOGIN_EMAIL_LIMIT, LOGIN_IP_WINDOW,
+                "Слишком много попыток входа в этот аккаунт. Попробуйте позже.");
+        // Counted before the password check, so parallel guesses cannot all slip under the limit.
+        if (!rateLimiter.tryAcquire(attemptBucket, props.security().loginMaxAttempts(), props.security().loginLockDuration())) {
+            long minutes = Math.max(1, rateLimiter.ttl(attemptBucket).toMinutes());
+            throw ApiException.tooManyRequests("Слишком много неудачных попыток входа. Повторите через " + minutes + " мин.");
         }
 
         User user = users.findByEmail(email).orElse(null);
         boolean passwordOk = passwordEncoder.matches(request.password(), user == null ? dummyHash : user.getPasswordHash());
         if (user == null || !passwordOk) {
-            rateLimiter.tryAcquire(emailBucket, Integer.MAX_VALUE, props.security().loginLockDuration());
             throw ApiException.unauthorized("invalid_credentials", "Неверный email или пароль");
         }
         if (!user.isEnabled()) {
             throw ApiException.forbidden("Аккаунт заблокирован. Свяжитесь с поддержкой.");
         }
-        rateLimiter.reset(emailBucket);
+        rateLimiter.reset(attemptBucket);
         user.setLastLoginAt(clock.instant());
         return issueTokens(user, UUID.randomUUID(), client);
     }

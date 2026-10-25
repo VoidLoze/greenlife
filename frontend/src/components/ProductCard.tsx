@@ -4,10 +4,12 @@ import clsx from 'clsx'
 import type { ProductCard as Card } from '@/api/types'
 import { useT } from '@/i18n'
 import { discountPercent, money } from '@/lib/format'
+import { flyToCart } from '@/lib/flyToCart'
 import { isPlainClick, useOpenQuickView } from '@/lib/quickView'
 import { useIsPartner } from '@/lib/useQuote'
 import { useCartStore } from '@/store/cart'
 import { toast } from '@/store/toast'
+import { FavoriteButton } from './ProductActions'
 import { QuantityStepper } from './ui'
 
 export function StockLine({ inStock, lowStock }: { inStock: boolean; lowStock: boolean }) {
@@ -94,6 +96,7 @@ function ProductCardComponent({ product }: { product: Card }) {
           {product.featured && !product.badge && <span className="badge badge-dark">★ Greenleaf</span>}
         </span>
       </Link>
+      <FavoriteButton productId={product.id} />
       <div className="product-body">
         <div className="row" style={{ justifyContent: 'space-between' }}>
           <span className="product-brand">{product.brand?.name ?? pick(product.category?.nameRu, product.category?.nameKk)}</span>
@@ -119,8 +122,9 @@ function ProductCardComponent({ product }: { product: Card }) {
             type="button"
             className="btn btn-primary btn-sm"
             disabled={!canBuy}
-            onClick={() => {
+            onClick={(e) => {
               add(product.id)
+              flyToCart(e.currentTarget)
               toast.success(`«${name}» — ${t.inCart.toLowerCase()}`)
             }}
           >

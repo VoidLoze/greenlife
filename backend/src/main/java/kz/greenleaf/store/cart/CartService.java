@@ -57,25 +57,27 @@ public class CartService {
         return pricing.quote(lines, tierFor(principal), deliveryMethod);
     }
 
+    /**
+     * The stored cart is never trimmed by the quote: an item that is out of stock today or a quantity above today's
+     * stock stays saved and comes back when the shelf is refilled; the quote itself reports the adjustments.
+     */
     public Quote current(AuthPrincipal principal, DeliveryMethod deliveryMethod) {
-        Quote quote = pricing.quote(read(principal.id()), tierFor(principal), deliveryMethod);
-        if (quote.adjusted()) {
-            write(principal.id(), fromQuote(quote));
-        }
-        return quote;
+        return pricing.quote(read(principal.id()), tierFor(principal), deliveryMethod);
     }
 
+    /** Priced from the lines just received, not re-read from Redis — a Redis outage must not empty the cart. */
     public Quote replace(AuthPrincipal principal, List<CartLineInput> lines, DeliveryMethod deliveryMethod) {
         write(principal.id(), lines);
-        return current(principal, deliveryMethod);
+        return pricing.quote(lines, tierFor(principal), deliveryMethod);
     }
 
     /** On sign-in the browser cart is folded into the stored one; the larger quantity wins so nothing doubles up. */
     public Quote merge(AuthPrincipal principal, List<CartLineInput> incoming, DeliveryMethod deliveryMethod) {
         Map<Long, Integer> merged = toMap(read(principal.id()));
         PricingService.merge(incoming).forEach((id, qty) -> merged.merge(id, qty, Math::max));
-        write(principal.id(), toLines(merged));
-        return current(principal, deliveryMethod);
+        List<CartLineInput> lines = toLines(merged);
+        write(principal.id(), lines);
+        return pricing.quote(lines, tierFor(principal), deliveryMethod);
     }
 
     public void clear(Long userId) {
@@ -134,10 +136,6 @@ public class CartService {
         } catch (DataAccessException ex) {
             log.warn("Failed to persist cart for user {}: {}", userId, ex.getMessage());
         }
-    }
-
-    private static List<CartLineInput> fromQuote(Quote quote) {
-        return quote.items().stream().map(l -> new CartLineInput(l.productId(), l.quantity())).toList();
     }
 
     private static Map<Long, Integer> toMap(List<CartLineInput> lines) {

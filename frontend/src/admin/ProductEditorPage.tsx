@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Link, useBlocker, useNavigate, useParams, useSearchParams } from 'react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import clsx from 'clsx'
 import { adminApi, type AdminProduct, type ParsedDescription, type ProductUpsert } from '@/api/admin'
@@ -13,10 +13,9 @@ import { parseVideo } from '@/lib/video'
 import { dateTime, money } from '@/lib/format'
 import { useDocumentTitle, useSettings } from '@/lib/hooks'
 import { toast } from '@/store/toast'
+import { CardPreview, EditorSteps, publishBlockers, PublishChecklist, StepNav, type GuideInput, type Tab } from './EditorGuide'
 import { MediaManager } from './MediaManager'
-import { AdminHead, nullIfBlank, numberOrNull, productStatusBadge, productStatusLabel, ScoreRing } from './shared'
-
-type Tab = 'main' | 'description' | 'specs' | 'media'
+import { AdminHead, moneyOrNull, nullIfBlank, numberOrNull, productStatusBadge, productStatusLabel, ScoreRing } from './shared'
 
 interface FormState {
   nameRu: string
@@ -29,6 +28,7 @@ interface FormState {
   price: string
   partnerPrice: string
   oldPrice: string
+  trackStock: boolean
   stockQuantity: string
   volume: string
   badge: string
@@ -55,7 +55,7 @@ const str = (v: string | number | null | undefined) => (v == null ? '' : String(
 function emptyForm(): FormState {
   return {
     nameRu: '', nameKk: '', sku: '', slug: '', categoryId: '', typeId: '', brand: '',
-    price: '', partnerPrice: '', oldPrice: '', stockQuantity: '', volume: '', badge: '',
+    price: '', partnerPrice: '', oldPrice: '', trackStock: false, stockQuantity: '', volume: '', badge: '',
     featured: false, status: 'DRAFT', catalogPage: '', videoUrl: '', searchKeywords: '',
     summaryRu: '', summaryKk: '', descriptionRu: '', descriptionKk: '', usageRu: '', usageKk: '',
     composition: '', warningsRu: '', warningsKk: '', benefits: [], attributes: [],
@@ -67,7 +67,7 @@ function fromProduct(p: AdminProduct): FormState {
     nameRu: p.nameRu, nameKk: str(p.nameKk), sku: p.sku, slug: p.slug,
     categoryId: str(p.category?.id), typeId: str(p.type?.id), brand: p.brand?.name ?? '',
     price: str(p.price), partnerPrice: str(p.partnerPrice), oldPrice: str(p.oldPrice),
-    stockQuantity: str(p.stockQuantity), volume: str(p.volume), badge: str(p.badge),
+    trackStock: p.stockQuantity != null, stockQuantity: str(p.stockQuantity), volume: str(p.volume), badge: str(p.badge),
     featured: p.featured, status: p.status, catalogPage: str(p.catalogPage), videoUrl: str(p.videoUrl), searchKeywords: str(p.searchKeywords),
     summaryRu: str(p.summaryRu), summaryKk: str(p.summaryKk), descriptionRu: str(p.descriptionRu), descriptionKk: str(p.descriptionKk),
     usageRu: str(p.usageRu), usageKk: str(p.usageKk), composition: str(p.composition),
@@ -77,10 +77,20 @@ function fromProduct(p: AdminProduct): FormState {
   }
 }
 
-function toUpsert(f: FormState, brands: { id: number; name: string }[], version?: number): ProductUpsert {
+/** Which editor step shows each server-side field, so an error on a hidden step can point there. */
+const FIELD_TAB: Record<string, Tab> = {
+  summaryRu: 'description', summaryKk: 'description', descriptionRu: 'description', descriptionKk: 'description',
+  usageRu: 'description', usageKk: 'description', composition: 'description', warningsRu: 'description', warningsKk: 'description',
+  searchKeywords: 'specs', catalogPage: 'specs', videoUrl: 'media',
+}
+const tabOfField = (field: string): Tab =>
+  FIELD_TAB[field] ?? (field.startsWith('benefits') || field.startsWith('attributes') ? 'specs' : 'main')
+const TAB_LABEL: Record<Tab, string> = { main: 'Основное', description: 'Описание', specs: 'Характеристики', media: 'Фото и видео' }
+
+function toUpsert(f: FormState, brands: { id: number; name: string }[], version?: number, stockBase?: number | null): ProductUpsert {
   const brandName = f.brand.trim()
   const brand = brandName ? brands.find((b) => b.name.toLowerCase() === brandName.toLowerCase()) : undefined
-  const stock = numberOrNull(f.stockQuantity)
+  const stock = f.trackStock ? (numberOrNull(f.stockQuantity) ?? 0) : null
   const page = numberOrNull(f.catalogPage)
   return {
     nameRu: f.nameRu.trim(),
@@ -91,10 +101,11 @@ function toUpsert(f: FormState, brands: { id: number; name: string }[], version?
     typeId: f.categoryId && f.typeId ? Number(f.typeId) : null,
     brandId: brand?.id ?? null,
     brandName: brand ? null : nullIfBlank(brandName),
-    price: numberOrNull(f.price),
-    partnerPrice: numberOrNull(f.partnerPrice),
-    oldPrice: numberOrNull(f.oldPrice),
+    price: moneyOrNull(f.price),
+    partnerPrice: moneyOrNull(f.partnerPrice),
+    oldPrice: moneyOrNull(f.oldPrice),
     stockQuantity: stock == null ? null : Math.floor(stock),
+    stockBase: stockBase ?? null,
     volume: nullIfBlank(f.volume),
     badge: nullIfBlank(f.badge),
     featured: f.featured,
@@ -167,7 +178,13 @@ function ParseModal({ parsed, onApply, onClose }: { parsed: ParsedDescription; o
   )
 }
 
-function LangPair({ label, ru, kk, onRu, onKk, multiline, rows, maxRu, hint }: {
+const Req = () => (
+  <b className="req" title="Обязательное поле">
+    *
+  </b>
+)
+
+function LangPair({ label, ru, kk, onRu, onKk, multiline, rows, maxRu, hint, required, error }: {
   label: string
   ru: string
   kk: string
@@ -177,14 +194,24 @@ function LangPair({ label, ru, kk, onRu, onKk, multiline, rows, maxRu, hint }: {
   rows?: number
   maxRu?: number
   hint?: string
+  required?: boolean
+  error?: string
 }) {
   const Control = multiline ? 'textarea' : 'input'
   return (
     <div className="lang-pair">
-      <Field label={`${label} · RU`} hint={hint ?? (maxRu ? `${ru.length} / ${maxRu}` : undefined)}>
-        <Control className={multiline ? 'textarea' : 'input'} value={ru} rows={rows} maxLength={maxRu} onChange={(e) => onRu(e.target.value)} />
+      <Field
+        label={
+          <>
+            {label} · RU {required && <Req />}
+          </>
+        }
+        error={error}
+        hint={hint ?? (maxRu ? `${ru.length} / ${maxRu}` : undefined)}
+      >
+        <Control className={clsx(multiline ? 'textarea' : 'input', error && 'invalid')} value={ru} rows={rows} maxLength={maxRu} onChange={(e) => onRu(e.target.value)} />
       </Field>
-      <Field label={`${label} · KZ`}>
+      <Field label={`${label} · KZ (необязательно)`}>
         <Control className={multiline ? 'textarea' : 'input'} value={kk} rows={rows} maxLength={maxRu} onChange={(e) => onKk(e.target.value)} />
       </Field>
     </div>
@@ -217,14 +244,21 @@ export default function ProductEditorPage() {
   const [problem, setProblem] = useState<ApiProblem | null>(null)
   const [parsed, setParsed] = useState<ParsedDescription | null>(null)
 
+  /** Replaces the form with the product as saved. Media changes only refresh `product`, never the form being edited. */
+  const load = useCallback((p: AdminProduct) => {
+    setProduct(p)
+    const f = fromProduct(p)
+    setForm(f)
+    setInitial(f)
+  }, [])
+
+  const loadedOnce = useRef(false)
   useEffect(() => {
-    if (productQuery.data) {
-      setProduct(productQuery.data)
-      const f = fromProduct(productQuery.data)
-      setForm(f)
-      setInitial(f)
+    if (productQuery.data && !loadedOnce.current) {
+      loadedOnce.current = true
+      load(productQuery.data)
     }
-  }, [productQuery.data])
+  }, [productQuery.data, load])
 
   useDocumentTitle(isNew ? 'Новый товар' : product?.nameRu)
 
@@ -236,6 +270,17 @@ export default function ProductEditorPage() {
     window.addEventListener('beforeunload', handler)
     return () => window.removeEventListener('beforeunload', handler)
   }, [dirty])
+
+  // Navigations the editor starts itself (after create/delete) must not ask about changes that were just saved.
+  const allowLeave = useRef(false)
+  const blocker = useBlocker(
+    ({ currentLocation, nextLocation }) => dirty && !allowLeave.current && currentLocation.pathname !== nextLocation.pathname,
+  )
+  useEffect(() => {
+    if (blocker.state !== 'blocked') return
+    if (window.confirm('Есть несохранённые изменения. Уйти без сохранения?')) blocker.proceed()
+    else blocker.reset()
+  }, [blocker])
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) => setForm((f) => ({ ...f, [key]: value }))
   const selectedCategory = categories.data?.find((c) => String(c.id) === form.categoryId)
@@ -252,7 +297,8 @@ export default function ProductEditorPage() {
 
   const save = useMutation({
     mutationFn: (override?: Partial<FormState>) => {
-      const body = toUpsert({ ...form, ...override }, brands.data ?? [], product?.version)
+      const stockBase = initial.trackStock ? (numberOrNull(initial.stockQuantity) ?? 0) : null
+      const body = toUpsert({ ...form, ...override }, brands.data ?? [], product?.version, isNew ? null : stockBase)
       return isNew ? adminApi.createProduct(body) : adminApi.updateProduct(productId!, body)
     },
     onSuccess: (p) => {
@@ -264,6 +310,7 @@ export default function ProductEditorPage() {
       queryClient.invalidateQueries({ queryKey: ['admin', 'brands'] })
       if (isNew) {
         toast.success('Товар создан. Теперь добавьте фото, скрины и документы.')
+        allowLeave.current = true
         navigate(`/admin/products/${p.id}?tab=media`, { replace: true })
       } else {
         toast.success('Сохранено')
@@ -272,6 +319,8 @@ export default function ProductEditorPage() {
     onError: (e) => {
       const pr = problemOf(e)
       setProblem(pr)
+      const fields = Object.keys(pr.errors ?? {})
+      if (fields.length && !fields.some((f) => tabOfField(f) === tab)) setTab(tabOfField(fields[0]))
       if (pr.code !== 'stale_data' && pr.code !== 'not_ready_to_publish') toast.error(pr.detail)
     },
   })
@@ -310,16 +359,24 @@ export default function ProductEditorPage() {
 
   const remove = useMutation({
     mutationFn: () => adminApi.deleteProduct(productId!),
-    onSuccess: (res) => {
+    onSuccess: async (res) => {
       toast.info(res.message)
-      queryClient.invalidateQueries({ queryKey: ['admin'] })
-      if (res.archived) void productQuery.refetch()
-      else navigate('/admin/products', { replace: true })
+      if (res.archived) {
+        const fresh = await productQuery.refetch()
+        if (fresh.data) load(fresh.data)
+      } else {
+        allowLeave.current = true
+        queryClient.removeQueries({ queryKey: ['admin', 'product', productId] })
+        navigate('/admin/products', { replace: true })
+      }
+      void queryClient.invalidateQueries({ queryKey: ['admin', 'products'] })
+      void queryClient.invalidateQueries({ queryKey: ['admin', 'dashboard'] })
     },
     onError: (e) => toast.error(errorMessage(e)),
   })
 
   const duplicate = useMutation({
+    mutationKey: ['duplicate', productId],
     mutationFn: () => adminApi.duplicate(productId!),
     onSuccess: (p) => {
       toast.success('Создана копия (черновик)')
@@ -336,16 +393,51 @@ export default function ProductEditorPage() {
 
   const fieldError = (key: string) => problem?.errors?.[key]
   const autoPartner = (() => {
-    const price = numberOrNull(form.price)
+    const price = moneyOrNull(form.price)
     if (price == null || !settings?.partnerDiscountPercent) return null
     return Math.round(price * (1 - settings.partnerDiscountPercent / 100))
   })()
-  const mediaCount = product?.media.length ?? 0
   const videoPreview = parseVideo(form.videoUrl)
+  const guide: GuideInput = {
+    name: form.nameRu,
+    categoryId: form.categoryId,
+    price: moneyOrNull(form.price),
+    oldPrice: moneyOrNull(form.oldPrice),
+    partnerPrice: moneyOrNull(form.partnerPrice),
+    summary: form.summaryRu,
+    description: form.descriptionRu,
+    benefits: form.benefits.filter((b) => b.textRu.trim()).length,
+    volume: form.volume,
+    badge: form.badge,
+    product,
+  }
+  const blockers = publishBlockers(guide)
+  const canPublish = blockers.every((b) => b.ok)
+  const moneyError = (raw: string) => {
+    if (!raw.trim()) return undefined
+    const n = moneyOrNull(raw)
+    if (n == null || n <= 0) return 'Введите сумму больше нуля, например 12 500'
+    return Number.isInteger(n) ? undefined : 'Только целые тенге, без копеек'
+  }
+  const priceError = moneyError(form.price)
+  const partnerPriceError = moneyError(form.partnerPrice)
+  const oldPriceError =
+    moneyError(form.oldPrice) ??
+    (guide.oldPrice != null && guide.price != null && guide.oldPrice <= guide.price ? 'Должна быть выше розничной — иначе скидка не покажется' : undefined)
   const submit = () => {
     if (!form.nameRu.trim()) {
       setTab('main')
+      setProblem({ ...(problem ?? {}), errors: { nameRu: 'Укажите название — это единственное обязательное поле для черновика' } } as ApiProblem)
       toast.error('Укажите название товара')
+      return
+    }
+    if (priceError || partnerPriceError || oldPriceError) {
+      setTab('main')
+      toast.error('Проверьте цены на шаге «Основное»')
+      return
+    }
+    if (form.status === 'PUBLISHED' && !canPublish) {
+      toast.error('Товар пока нельзя опубликовать — смотрите список «Для публикации нужно» справа')
       return
     }
     save.mutate(undefined)
@@ -377,15 +469,28 @@ export default function ProductEditorPage() {
             onClick={async () => {
               setProblem(null)
               const fresh = await productQuery.refetch()
-              if (fresh.data) {
-                const f = fromProduct(fresh.data)
-                setForm(f)
-                setInitial(f)
-              }
+              if (fresh.data) load(fresh.data)
             }}
           >
             Загрузить свежую версию
           </button>
+        </div>
+      )}
+      {problem?.errors && Object.keys(problem.errors).some((f) => tabOfField(f) !== tab) && (
+        <div className="notice error" style={{ marginBottom: 14, flexDirection: 'column', alignItems: 'flex-start' }}>
+          <strong>Исправьте ошибки на других шагах:</strong>
+          <ul style={{ margin: 0, paddingLeft: 18 }}>
+            {Object.entries(problem.errors)
+              .filter(([f]) => tabOfField(f) !== tab)
+              .map(([f, message]) => (
+                <li key={f}>
+                  <button type="button" className="link-btn" onClick={() => setTab(tabOfField(f))}>
+                    {TAB_LABEL[tabOfField(f)]}
+                  </button>
+                  : {message}
+                </li>
+              ))}
+          </ul>
         </div>
       )}
       {problem?.code === 'not_ready_to_publish' && (
@@ -399,27 +504,22 @@ export default function ProductEditorPage() {
 
       <div className="editor-layout">
         <div className="stack" style={{ gap: 16 }}>
-          <div className="tabs">
-            {(
-              [
-                ['main', 'Основное'],
-                ['description', 'Описание'],
-                ['specs', 'Характеристики'],
-                ['media', `Медиа${mediaCount ? ` · ${mediaCount}` : ''}`],
-              ] as [Tab, string][]
-            ).map(([id, label]) => (
-              <button key={id} type="button" className={clsx('tab', tab === id && 'active')} onClick={() => setTab(id)}>
-                {label}
-              </button>
-            ))}
-          </div>
+          <EditorSteps input={guide} tab={tab} onTab={setTab} />
+          {isNew && tab === 'main' && (
+            <div className="editor-intro">
+              <strong>Как добавить товар</strong>
+              <span>
+                Заполните поля со звёздочкой <Req /> и нажмите «Создать товар» — он сохранится черновиком и сразу откроется шаг загрузки
+                фото. Описание и характеристики можно дописать позже. Покупатели увидят товар только после публикации.
+              </span>
+            </div>
+          )}
 
           {tab === 'main' && (
             <>
               <section className="panel editor-section">
                 <h3>Название и идентификаторы</h3>
-                <LangPair label="Название" ru={form.nameRu} kk={form.nameKk} onRu={(v) => set('nameRu', v)} onKk={(v) => set('nameKk', v)} maxRu={255} />
-                {fieldError('nameRu') && <span className="small" style={{ color: 'var(--danger)' }}>{fieldError('nameRu')}</span>}
+                <LangPair label="Название" required error={fieldError('nameRu')} ru={form.nameRu} kk={form.nameKk} onRu={(v) => { set('nameRu', v); if (fieldError('nameRu')) setProblem(null) }} onKk={(v) => set('nameKk', v)} maxRu={255} />
                 <div className="grid-2">
                   <Field label="Артикул (SKU)" error={fieldError('sku')} hint={isNew ? 'Оставьте пустым — сгенерируется автоматически' : undefined}>
                     <input className="input" value={form.sku} maxLength={40} onChange={(e) => set('sku', e.target.value.replace(/[^A-Za-z0-9._-]/g, ''))} placeholder="GL-1001" />
@@ -433,7 +533,7 @@ export default function ProductEditorPage() {
               <section className="panel editor-section">
                 <h3>Категория, тип и бренд</h3>
                 <div className="grid-3">
-                  <Field label="Категория">
+                  <Field label={<>Категория <Req /></>} hint="Нужна для публикации">
                     <Select
                       value={form.categoryId}
                       onChange={(v) =>
@@ -485,17 +585,35 @@ export default function ProductEditorPage() {
               <section className="panel editor-section">
                 <h3>Цены и склад</h3>
                 <div className="grid-3">
-                  <Field label="Розничная цена, ₸" error={fieldError('price')}>
-                    <input className="input" inputMode="decimal" value={form.price} onChange={(e) => set('price', e.target.value.replace(/[^\d.,]/g, ''))} />
+                  <Field label={<>Розничная цена, ₸ <Req /></>} error={fieldError('price') ?? priceError} hint="Нужна для публикации">
+                    <input className="input" inputMode="numeric" value={form.price} onChange={(e) => set('price', e.target.value.replace(/[^\d.,\s]/g, ''))} />
                   </Field>
-                  <Field label="Партнёрская цена, ₸" error={fieldError('partnerPrice')} hint={autoPartner != null ? `Пусто — авто: ${money(autoPartner)} (−${settings?.partnerDiscountPercent}%)` : undefined}>
-                    <input className="input" inputMode="decimal" value={form.partnerPrice} placeholder={autoPartner != null ? String(autoPartner) : ''} onChange={(e) => set('partnerPrice', e.target.value.replace(/[^\d.,]/g, ''))} />
+                  <Field label="Партнёрская цена, ₸" error={fieldError('partnerPrice') ?? partnerPriceError} hint={autoPartner != null ? `Пусто — авто: ${money(autoPartner)} (−${settings?.partnerDiscountPercent}%)` : undefined}>
+                    <input className="input" inputMode="numeric" value={form.partnerPrice} placeholder={autoPartner != null ? String(autoPartner) : ''} onChange={(e) => set('partnerPrice', e.target.value.replace(/[^\d.,\s]/g, ''))} />
                   </Field>
-                  <Field label="Старая цена (зачёркнутая), ₸" error={fieldError('oldPrice')} hint="Должна быть выше розничной">
-                    <input className="input" inputMode="decimal" value={form.oldPrice} onChange={(e) => set('oldPrice', e.target.value.replace(/[^\d.,]/g, ''))} />
+                  <Field label="Старая цена (зачёркнутая), ₸" error={fieldError('oldPrice') ?? oldPriceError} hint="Необязательно. Должна быть выше розничной">
+                    <input className={clsx('input', oldPriceError && 'invalid')} inputMode="numeric" value={form.oldPrice} onChange={(e) => set('oldPrice', e.target.value.replace(/[^\d.,\s]/g, ''))} />
                   </Field>
-                  <Field label="Остаток, шт." error={fieldError('stockQuantity')} hint="Пусто — без учёта остатков">
-                    <input className="input" inputMode="numeric" value={form.stockQuantity} onChange={(e) => set('stockQuantity', e.target.value.replace(/\D/g, ''))} />
+                  <Field
+                    label="Остаток, шт."
+                    error={fieldError('stockQuantity')}
+                    hint={
+                      form.trackStock
+                        ? 'Уменьшается с каждым заказом; при 0 товар «нет в наличии». Заказы, пришедшие пока вы редактируете, учтутся'
+                        : 'Учёт выключен — товар всегда «в наличии»'
+                    }
+                  >
+                    <label className="checkbox" style={{ marginBottom: 6 }}>
+                      <input
+                        type="checkbox"
+                        checked={form.trackStock}
+                        onChange={(e) => setForm((f) => ({ ...f, trackStock: e.target.checked, stockQuantity: e.target.checked ? f.stockQuantity : '' }))}
+                      />
+                      Вести учёт остатка
+                    </label>
+                    {form.trackStock && (
+                      <input className="input" inputMode="numeric" value={form.stockQuantity} placeholder="0" onChange={(e) => set('stockQuantity', e.target.value.replace(/\D/g, ''))} />
+                    )}
                   </Field>
                   <Field label="Объём / вес">
                     <input className="input" value={form.volume} maxLength={60} placeholder="250 мл" onChange={(e) => set('volume', e.target.value)} />
@@ -509,6 +627,18 @@ export default function ProductEditorPage() {
                   Показывать в «Выбор Greenleaf» на главной
                 </label>
               </section>
+              {isNew ? (
+                <div className="step-nav">
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => setTab('description')}>
+                    Сначала заполнить описание →
+                  </button>
+                  <button type="button" className="btn btn-gold" onClick={submit} disabled={save.isPending}>
+                    {save.isPending ? <Spinner /> : 'Создать товар и перейти к фото →'}
+                  </button>
+                </div>
+              ) : (
+                <StepNav tab={tab} onTab={setTab} />
+              )}
             </>
           )}
 
@@ -527,6 +657,7 @@ export default function ProductEditorPage() {
                 <textarea className="textarea" value={form.composition} maxLength={5000} onChange={(e) => set('composition', e.target.value)} />
               </Field>
               <LangPair label="Меры предосторожности" ru={form.warningsRu} kk={form.warningsKk} onRu={(v) => set('warningsRu', v)} onKk={(v) => set('warningsKk', v)} multiline rows={3} maxRu={3000} />
+              <StepNav tab={tab} onTab={setTab} />
             </section>
           )}
 
@@ -587,6 +718,7 @@ export default function ProductEditorPage() {
                   </Field>
                 </div>
               </section>
+              <StepNav tab={tab} onTab={setTab} nextLabel={isNew ? { media: 'Далее: создать товар и добавить фото' } : undefined} />
             </>
           )}
 
@@ -609,7 +741,32 @@ export default function ProductEditorPage() {
               </section>
               <section className="panel editor-section">
                 <h3>Фото, видео, скрины и документы</h3>
-                <MediaManager product={product} onChanged={reloadMedia} />
+                {product ? (
+                  <>
+                    <p className="muted small">
+                      Перетащите файлы в рамку или нажмите на неё. Первое фото становится обложкой — её видно в каталоге; порядок меняется
+                      перетаскиванием.
+                    </p>
+                    <MediaManager product={product} onChanged={reloadMedia} />
+                  </>
+                ) : (
+                  <div className="media-locked">
+                    <span className="media-locked-icon">📷</span>
+                    <strong>Фото загружаются после создания товара</strong>
+                    <span className="muted small">
+                      {form.nameRu.trim() ? 'Нажмите кнопку — товар сохранится черновиком, и здесь появится загрузка файлов.' : 'Сначала укажите название на шаге «Основное».'}
+                    </span>
+                    {form.nameRu.trim() ? (
+                      <button type="button" className="btn btn-gold" onClick={submit} disabled={save.isPending}>
+                        {save.isPending ? <Spinner /> : 'Создать товар'}
+                      </button>
+                    ) : (
+                      <button type="button" className="btn btn-ghost" onClick={() => setTab('main')}>
+                        ← К шагу «Основное»
+                      </button>
+                    )}
+                  </div>
+                )}
               </section>
             </>
           )}
@@ -620,17 +777,38 @@ export default function ProductEditorPage() {
             <h3>Публикация</h3>
             <div className="status-switch">
               {(['DRAFT', 'PUBLISHED', 'ARCHIVED'] as ProductStatus[]).map((s) => (
-                <button key={s} type="button" className={clsx(form.status === s && `active ${s}`)} onClick={() => set('status', s)}>
+                <button
+                  key={s}
+                  type="button"
+                  className={clsx(form.status === s && `active ${s}`)}
+                  disabled={s === 'PUBLISHED' && !canPublish && form.status !== 'PUBLISHED'}
+                  title={s === 'PUBLISHED' && !canPublish ? 'Сначала заполните пункты из списка ниже' : undefined}
+                  onClick={() => set('status', s)}
+                >
                   {productStatusLabel[s]}
                 </button>
               ))}
             </div>
+            <p className="muted small" style={{ margin: 0 }}>
+              {form.status === 'DRAFT'
+                ? 'Черновик видите только вы — покупатели его не видят.'
+                : form.status === 'PUBLISHED'
+                  ? 'Товар виден в каталоге и доступен для заказа.'
+                  : 'Архив скрыт из каталога, но остаётся в старых заказах.'}
+            </p>
+            <PublishChecklist items={blockers} />
             <button type="button" className="btn btn-primary btn-block" onClick={submit} disabled={save.isPending || (!dirty && !isNew)}>
               {save.isPending ? <Spinner /> : isNew ? 'Создать товар' : dirty ? 'Сохранить изменения' : 'Сохранено ✓'}
             </button>
             {product && (
               <div className="row">
-                <button type="button" className="btn btn-ghost btn-sm" style={{ flex: 1 }} onClick={() => duplicate.mutate()} disabled={duplicate.isPending}>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  style={{ flex: 1 }}
+                  onClick={() => queryClient.isMutating({ mutationKey: ['duplicate', productId] }) === 0 && duplicate.mutate()}
+                  disabled={duplicate.isPending}
+                >
                   Дублировать
                 </button>
                 <button
@@ -644,6 +822,11 @@ export default function ProductEditorPage() {
                 </button>
               </div>
             )}
+          </section>
+
+          <section className="panel editor-section">
+            <h3>Так увидит покупатель</h3>
+            <CardPreview input={guide} autoPartner={autoPartner} />
           </section>
 
           <section className="panel editor-section">

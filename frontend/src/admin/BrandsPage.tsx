@@ -14,6 +14,7 @@ function BrandForm({ initial, onClose }: { initial: Draft; onClose: () => void }
   const queryClient = useQueryClient()
   const [draft, setDraft] = useState<Draft>(initial)
   const [errors, setErrors] = useState<Record<string, string>>({})
+  const dirty = JSON.stringify(draft) !== JSON.stringify(initial)
 
   const save = useMutation({
     mutationFn: () =>
@@ -32,7 +33,7 @@ function BrandForm({ initial, onClose }: { initial: Draft; onClose: () => void }
   })
 
   return (
-    <Modal open title={draft.id ? 'Редактировать бренд' : 'Новый бренд'} onClose={onClose}>
+    <Modal open title={draft.id ? 'Редактировать бренд' : 'Новый бренд'} onClose={onClose} dirty={dirty && !save.isPending}>
       <form
         className="stack"
         onSubmit={(e) => {

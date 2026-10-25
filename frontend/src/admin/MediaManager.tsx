@@ -27,7 +27,10 @@ interface QueuedFile {
   description: string
   progress: number
   state: 'pending' | 'uploading' | 'done' | 'error'
+  /** The file itself is unacceptable (type/size): uploading it again would fail the same way. */
   error?: string
+  /** The upload failed (network, server): the file can be sent again. */
+  uploadError?: string
 }
 
 let nextQueueId = 1
@@ -108,11 +111,13 @@ function UploadQueue({ productId, onUploaded }: { productId: number; onUploaded:
     })
 
   const uploadAll = async () => {
+    if (busy) return
     setBusy(true)
     let uploaded = 0
-    for (const item of queue) {
+    let failed = 0
+    for (const item of queueRef.current) {
       if (item.state === 'done' || item.error) continue
-      patch(item.id, { state: 'uploading', progress: 0 })
+      patch(item.id, { state: 'uploading', progress: 0, uploadError: undefined })
       try {
         await adminApi.uploadMedia(
           productId,
@@ -123,19 +128,25 @@ function UploadQueue({ productId, onUploaded }: { productId: number; onUploaded:
         patch(item.id, { state: 'done', progress: 100 })
         uploaded++
       } catch (e) {
-        patch(item.id, { state: 'error', error: errorMessage(e) })
+        failed++
+        patch(item.id, { state: 'error', uploadError: errorMessage(e) })
       }
     }
-    await onUploaded()
-    setQueue((q) => {
-      q.filter((i) => i.state === 'done').forEach((i) => i.preview && URL.revokeObjectURL(i.preview))
-      return q.filter((i) => i.state !== 'done')
-    })
-    setBusy(false)
+    try {
+      if (uploaded) await onUploaded()
+    } finally {
+      setQueue((q) => {
+        q.filter((i) => i.state === 'done').forEach((i) => i.preview && URL.revokeObjectURL(i.preview))
+        return q.filter((i) => i.state !== 'done')
+      })
+      setBusy(false)
+    }
     if (uploaded) toast.success(`Загружено файлов: ${uploaded}`)
+    if (failed) toast.error(`Не загрузилось: ${failed}. Нажмите «Повторить» — файлы остались в списке.`)
   }
 
   const ready = queue.filter((q) => q.state !== 'done' && !q.error).length
+  const retrying = queue.some((q) => q.state === 'error')
 
   return (
     <div className="stack" style={{ gap: 14 }}>
@@ -223,6 +234,7 @@ function UploadQueue({ productId, onUploaded }: { productId: number; onUploaded:
                     {item.file.name} · {fileSize(item.file.size)}
                   </span>
                   {item.error && <span className="small" style={{ color: 'var(--danger)' }}>{item.error}</span>}
+                  {item.uploadError && <span className="small" style={{ color: 'var(--danger)' }}>Не загрузилось: {item.uploadError}</span>}
                   {item.state === 'uploading' && (
                     <div className="progress">
                       <span style={{ width: `${item.progress}%` }} />
@@ -237,7 +249,7 @@ function UploadQueue({ productId, onUploaded }: { productId: number; onUploaded:
           </div>
           <div className="row">
             <button type="button" className="btn btn-primary" onClick={uploadAll} disabled={busy || ready === 0}>
-              {busy ? <Spinner /> : `Загрузить (${ready})`}
+              {busy ? <Spinner /> : retrying ? `Повторить (${ready})` : `Загрузить (${ready})`}
             </button>
             <button type="button" className="btn btn-ghost" onClick={() => setQueue([])} disabled={busy}>
               Очистить
@@ -322,12 +334,14 @@ function MediaGroup({
   kind,
   items,
   productId,
+  published,
   onChanged,
   onEdit,
 }: {
   kind: MediaKind
   items: Media[]
   productId: number
+  published: boolean
   onChanged: () => Promise<void>
   onEdit: (m: Media) => void
 }) {
@@ -353,9 +367,14 @@ function MediaGroup({
 
   const drop = async (targetId: number) => {
     if (dragId == null || dragId === targetId) return
+    await move(dragId, order.findIndex((m) => m.id === targetId))
+  }
+
+  /** Drag-and-drop does not work on touch screens, so the arrow buttons call this directly. */
+  const move = async (id: number, to: number) => {
     const next = [...order]
-    const from = next.findIndex((m) => m.id === dragId)
-    const to = next.findIndex((m) => m.id === targetId)
+    const from = next.findIndex((m) => m.id === id)
+    if (from < 0 || to < 0 || to >= next.length || from === to) return
     const [moved] = next.splice(from, 1)
     next.splice(to, 0, moved)
     setOrder(next)
@@ -378,13 +397,13 @@ function MediaGroup({
     <div className="media-group">
       <h4>
         {titles[kind]} <span className="badge badge-gray">{items.length}</span>
-        {items.length > 1 && <span className="muted" style={{ textTransform: 'none', letterSpacing: 0 }}>· перетаскивайте, чтобы изменить порядок</span>}
+        {items.length > 1 && <span className="muted" style={{ textTransform: 'none', letterSpacing: 0 }}>· перетаскивайте или двигайте стрелками, чтобы изменить порядок</span>}
       </h4>
       {items.length === 0 ? (
         <p className="muted small">{emptyText[kind] ?? 'Пока пусто.'}</p>
       ) : (
         <div className="media-grid">
-          {order.map((m) => (
+          {order.map((m, index) => (
             <div
               key={m.id}
               className={clsx('media-tile', m.cover && 'cover', dragId === m.id && 'dragging', overId === m.id && dragId !== m.id && 'drop-target')}
@@ -425,6 +444,16 @@ function MediaGroup({
                 <span className="muted">{m.description ? m.description.slice(0, 60) : fileSize(m.sizeBytes)}</span>
               </div>
               <div className="tile-actions">
+                {order.length > 1 && (
+                  <>
+                    <button type="button" className="btn btn-ghost btn-sm" disabled={index === 0} onClick={() => void move(m.id, index - 1)} aria-label="Сдвинуть влево" title="Сдвинуть влево">
+                      ←
+                    </button>
+                    <button type="button" className="btn btn-ghost btn-sm" disabled={index === order.length - 1} onClick={() => void move(m.id, index + 1)} aria-label="Сдвинуть вправо" title="Сдвинуть вправо">
+                      →
+                    </button>
+                  </>
+                )}
                 {kind === 'PHOTO' && !m.cover && (
                   <button type="button" className="btn btn-ghost btn-sm" disabled={busyId === m.id} onClick={() => run(m.id, () => adminApi.updateMedia(productId, m.id, { cover: true }), 'Обложка обновлена')}>
                     Обложка
@@ -437,7 +466,15 @@ function MediaGroup({
                   type="button"
                   className="btn btn-danger btn-sm"
                   disabled={busyId === m.id}
-                  onClick={() => window.confirm('Удалить файл?') && run(m.id, () => adminApi.deleteMedia(productId, m.id), 'Файл удалён')}
+                  onClick={() => {
+                    const lastCover = published && kind === 'PHOTO' && items.length === 1
+                    const question = lastCover
+                      ? 'Это единственное фото товара. Без обложки товар нельзя показывать — он будет снят с публикации и станет черновиком.\n\nУдалить фото?'
+                      : 'Удалить файл?'
+                    if (window.confirm(question)) {
+                      void run(m.id, () => adminApi.deleteMedia(productId, m.id), lastCover ? 'Фото удалено, товар снят с публикации' : 'Файл удалён')
+                    }
+                  }}
                 >
                   ✕
                 </button>
@@ -471,7 +508,15 @@ export function MediaManager({ product, onChanged }: { product: AdminProduct | n
       <UploadQueue productId={product.id} onUploaded={onChanged} />
       <div>
         {(['PHOTO', 'VIDEO', 'SCREENSHOT', 'DOCUMENT'] as MediaKind[]).map((kind) => (
-          <MediaGroup key={kind} kind={kind} items={groups[kind]} productId={product.id} onChanged={onChanged} onEdit={setEditing} />
+          <MediaGroup
+            key={kind}
+            kind={kind}
+            items={groups[kind]}
+            productId={product.id}
+            published={product.status === 'PUBLISHED'}
+            onChanged={onChanged}
+            onEdit={setEditing}
+          />
         ))}
       </div>
       {editing && <MediaEditModal media={editing} productId={product.id} onClose={() => setEditing(null)} onSaved={onChanged} />}

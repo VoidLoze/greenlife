@@ -49,6 +49,8 @@ export interface ProductUpsert {
   oldPrice?: number | null
   volume?: string | null
   stockQuantity?: number | null
+  /** The stock the form was loaded with: the server applies only the difference, so sales in between are kept. */
+  stockBase?: number | null
   status?: ProductStatus
   featured?: boolean
   badge?: string | null
@@ -64,6 +66,28 @@ export interface CompanyVideo {
   title: string | null
   uploaded: boolean
   custom: boolean
+}
+
+export interface StoreSettings {
+  phone: string | null
+  whatsapp: string | null
+  telegramUrl: string | null
+  instagramUrl: string | null
+  city: string | null
+  address: string | null
+  workingHours: string | null
+  deliveryFee: number
+  freeDeliveryThreshold: number
+  freeDeliveryRetailOnly: boolean
+  partnerDiscountPercent: number
+  telegramConfigured: boolean
+  telegramTokenHint: string | null
+  telegramChatId: string | null
+}
+
+/** null keeps the saved value, '' returns to the server default. */
+export type StoreSettingsUpdate = Partial<Omit<StoreSettings, 'telegramConfigured' | 'telegramTokenHint'>> & {
+  telegramBotToken?: string | null
 }
 
 export interface Completeness {
@@ -283,6 +307,11 @@ export const adminApi = {
   },
   resetCompanyVideo: () => data(api.delete<CompanyVideo>('/admin/settings/company-video')),
 
+  storeSettings: () => data(api.get<StoreSettings>('/admin/settings/store')),
+  saveStoreSettings: (body: StoreSettingsUpdate) => data(api.put<StoreSettings>('/admin/settings/store', body)),
+  telegramTest: (body: { telegramBotToken?: string | null; telegramChatId?: string | null }) =>
+    api.post('/admin/settings/store/telegram-test', body),
+
   categories: () => data(api.get<AdminCategory[]>('/admin/categories')),
   saveCategory: (body: Partial<AdminCategory>, id?: number) =>
     data(id ? api.put<AdminCategory>(`/admin/categories/${id}`, body) : api.post<AdminCategory>('/admin/categories', body)),
@@ -299,12 +328,13 @@ export const adminApi = {
   orders: (f: { q?: string; status?: OrderStatus | ''; from?: string; to?: string; page?: number }) =>
     data(api.get<Page<OrderSummary>>('/admin/orders', { params: clean(f) })),
   order: (id: number) => data(api.get<Order>(`/admin/orders/${id}`)),
-  setOrderStatus: (id: number, status: OrderStatus, note?: string) =>
-    data(api.patch<Order>(`/admin/orders/${id}/status`, { status, note })),
+  setOrderStatus: (id: number, status: OrderStatus, note?: string, restock?: boolean) =>
+    data(api.patch<Order>(`/admin/orders/${id}/status`, { status, note, restock })),
   setOrderNote: (id: number, adminNote: string) => data(api.patch<Order>(`/admin/orders/${id}/note`, { adminNote })),
 
   users: (f: { q?: string; role?: Role | ''; page?: number }) =>
     data(api.get<Page<User>>('/admin/users', { params: clean(f) })),
   updateUser: (id: number, body: { role?: Role; partner?: boolean; enabled?: boolean }) =>
     data(api.patch<User>(`/admin/users/${id}`, body)),
+  resetPassword: (id: number) => data(api.post<{ temporaryPassword: string }>(`/admin/users/${id}/password-reset`)),
 }

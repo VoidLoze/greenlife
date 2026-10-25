@@ -65,6 +65,9 @@ public class AdminMediaService {
         if (file == null || file.isEmpty()) {
             throw ApiException.badRequest("empty_file", "Файл не выбран или пустой");
         }
+        if (meta.kind() != MediaKind.VIDEO && file.getSize() > MediaProcessor.MAX_FILE_BYTES) {
+            throw ApiException.badRequest("file_too_large", "Файл больше 25 МБ — уменьшите его и загрузите снова");
+        }
         StoredFileInfo stored;
         try {
             String folder = "products/" + productId;
@@ -144,6 +147,12 @@ public class AdminMediaService {
         }
         for (int i = 0; i < request.ids().size(); i++) {
             byId.get(request.ids().get(i)).setSortOrder(i);
+        }
+        // "The first photo is the cover": dragging a photo to the front makes it the cover.
+        if (request.kind() == MediaKind.PHOTO) {
+            request.ids().stream().map(byId::get).filter(ProductMedia::isImage).findFirst()
+                    .filter(first -> !first.isCover())
+                    .ifPresent(first -> makeCover(product, first));
         }
         cacheEvictor.evictAll();
         return request.ids().stream().map(byId::get).map(mapper::toMedia).toList();

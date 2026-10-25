@@ -1,25 +1,23 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import axios from 'axios'
+import { QueryClientProvider } from '@tanstack/react-query'
 import App from './App'
+import { clearReloadFlag, reloadOnceForNewVersion } from './components/RouteError'
+import { setupPwa } from './lib/pwa'
+import { queryClient } from './lib/queryClient'
 import './styles/base.css'
 import './styles/store.css'
-import './styles/admin.css'
 
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 60_000,
-      refetchOnWindowFocus: false,
-      retry: (failureCount, error) => {
-        const status = axios.isAxiosError(error) ? error.response?.status : undefined
-        if (status && status >= 400 && status < 500) return false
-        return failureCount < 2
-      },
-    },
-  },
+// The app restores scroll itself (Layout): the browser's own restoration fights with lazily loaded pages.
+if ('scrollRestoration' in history) history.scrollRestoration = 'manual'
+
+setupPwa()
+
+window.addEventListener('vite:preloadError', (event) => {
+  if (reloadOnceForNewVersion()) event.preventDefault()
 })
+// A page that stayed up for a while has loaded fine: a later deploy may reload it once again.
+window.setTimeout(clearReloadFlag, 30_000)
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

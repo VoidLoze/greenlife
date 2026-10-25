@@ -10,6 +10,8 @@ public interface FileStorage {
 
     void copyFrom(String key, InputStream content) throws IOException;
 
+    byte[] read(String key) throws IOException;
+
     void delete(String key);
 
     boolean exists(String key);

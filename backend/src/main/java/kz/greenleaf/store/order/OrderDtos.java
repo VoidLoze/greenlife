@@ -30,8 +30,11 @@ public final class OrderDtos {
             @NotNull(message = "Выберите способ получения") DeliveryMethod deliveryMethod,
             @NotNull(message = "Выберите способ оплаты") PaymentMethod paymentMethod,
             @NotEmpty(message = "Корзина пуста") @Valid @Size(max = 100) List<CartLineInput> items,
-            BigDecimal expectedTotal,
-            @Size(max = 0) String website) {
+            @NotNull(message = "Сумма заказа ещё не рассчитана — подождите секунду") BigDecimal expectedTotal,
+            @Size(max = 0) String website,
+            @Size(max = 64) String idempotencyKey,
+            /* Consent to the processing of personal data (Law of the Republic of Kazakhstan No. 94-V). */
+            boolean consent) {
     }
 
     public record OrderItemDto(Long productId, String sku, String productName, String imageUrl, BigDecimal unitPrice,
@@ -78,7 +81,8 @@ public final class OrderDtos {
     public record CheckoutResponse(OrderDto order, String whatsappUrl) {
     }
 
-    public record StatusUpdateRequest(@NotNull OrderStatus status, @Size(max = 1000) String note) {
+    /** {@code restock} matters only for a cancellation: a parcel that already left may not come back to the shelf. */
+    public record StatusUpdateRequest(@NotNull OrderStatus status, @Size(max = 1000) String note, Boolean restock) {
     }
 
     public record AdminNoteRequest(@Size(max = 5000) String adminNote) {

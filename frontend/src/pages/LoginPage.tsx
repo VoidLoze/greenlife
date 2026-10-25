@@ -4,7 +4,8 @@ import { useMutation } from '@tanstack/react-query'
 import { errorMessage } from '@/api/client'
 import { Field, Spinner } from '@/components/ui'
 import { useT } from '@/i18n'
-import { useDocumentTitle } from '@/lib/hooks'
+import { whatsappLink } from '@/lib/format'
+import { useDocumentTitle, useSettings } from '@/lib/hooks'
 import { useAuthStore } from '@/store/auth'
 import { toast } from '@/store/toast'
 import { safeNext } from '@/lib/validation'
@@ -18,6 +19,8 @@ export default function LoginPage() {
   const role = useAuthStore((s) => s.user?.role)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [forgot, setForgot] = useState(false)
+  const { data: settings } = useSettings()
   useDocumentTitle(t.login)
 
   const nextParam = params.get('next')
@@ -25,7 +28,7 @@ export default function LoginPage() {
   const mutation = useMutation({
     mutationFn: () => login(email.trim(), password),
     onSuccess: (user) => {
-      toast.success(`Здравствуйте, ${user.fullName}!`)
+      toast.success(`${t.hello}, ${user.fullName}!`)
     },
   })
 
@@ -54,6 +57,26 @@ export default function LoginPage() {
         <input className="input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required />
       </Field>
       {mutation.isError && <div className="notice error">{errorMessage(mutation.error)}</div>}
+      <button type="button" className="link-btn small" style={{ justifySelf: 'start' }} onClick={() => setForgot((v) => !v)}>
+        {t.forgotPassword}
+      </button>
+      {forgot && (
+        <div className="notice">
+          <span>
+            {t.forgotPasswordHint}{' '}
+            {settings?.whatsapp && (
+              <a
+                className="btn-link"
+                href={whatsappLink(settings.whatsapp, `Здравствуйте! Не могу войти в аккаунт${email.trim() ? ` (${email.trim()})` : ''} — нужен временный пароль.`)}
+                target="_blank"
+                rel="noreferrer"
+              >
+                {t.writeWhatsapp}
+              </a>
+            )}
+          </span>
+        </div>
+      )}
       <button type="submit" className="btn btn-primary btn-lg" disabled={mutation.isPending || !email || !password}>
         {mutation.isPending ? <Spinner /> : t.login}
       </button>

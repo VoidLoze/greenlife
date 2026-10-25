@@ -1,6 +1,7 @@
 package kz.greenleaf.store.config;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -24,7 +25,8 @@ public record AppProperties(
         @Valid @NotNull Cart cart,
         @Valid @NotNull Views views,
         @Valid @NotNull Admin admin,
-        @Valid @NotNull Seed seed) {
+        @Valid @NotNull Seed seed,
+        @Valid @NotNull Alerts alerts) {
 
     public record Store(
             @NotBlank String name,
@@ -55,16 +57,22 @@ public record AppProperties(
             @Min(1) int loginMaxAttempts,
             @NotNull Duration loginLockDuration,
             @Min(1) int registerPerHour,
-            @Min(1) int ordersPerHour) {
+            @Min(1) int ordersPerHour,
+            /* Unconfirmed (NEW) orders one phone number may have open at once — fake orders cannot drain the stock. */
+            @Min(1) int openOrdersPerPhone,
+            /* NEW orders nobody confirmed within this many hours are cancelled and their stock released; 0 = never. */
+            @Min(0) int autoCancelNewAfterHours) {
     }
 
     public record Storage(@NotBlank String root, @NotBlank String publicPrefix, @Min(64) int thumbnailWidth) {
     }
 
     public record Pricing(
-            @Min(0) int partnerDiscountPercent,
+            @Min(0) @Max(100) int partnerDiscountPercent,
             @NotNull BigDecimal deliveryFee,
             @NotNull BigDecimal freeDeliveryThreshold,
+            /* Free delivery is earned only by retail-price orders; partners get it on the day they buy the card. */
+            boolean freeDeliveryRetailOnly,
             @Min(1) int maxQuantityPerItem) {
     }
 
@@ -74,7 +82,16 @@ public record AppProperties(
     public record Views(@NotNull Duration dedupeWindow, @NotNull Duration flushInterval) {
     }
 
-    public record Admin(String email, String password, String fullName) {
+    /* With syncPassword the administrator's password is reset to ADMIN_PASSWORD on every start (to rotate it). */
+    public record Admin(String email, String password, String fullName, boolean syncPassword) {
+    }
+
+    /* New-order alerts to a Telegram chat; both values empty = alerts off. */
+    public record Alerts(String telegramBotToken, String telegramChatId) {
+        public boolean telegramEnabled() {
+            return telegramBotToken != null && !telegramBotToken.isBlank()
+                    && telegramChatId != null && !telegramChatId.isBlank();
+        }
     }
 
     public record Seed(boolean enabled, String dir) {

@@ -4,9 +4,9 @@ import { useMutation } from '@tanstack/react-query'
 import { errorMessage } from '@/api/client'
 import { ordersApi } from '@/api/endpoints'
 import { OrderDetails } from '@/components/OrderView'
-import { Field, Spinner } from '@/components/ui'
+import { Field, PhoneInput, Spinner } from '@/components/ui'
 import { useT } from '@/i18n'
-import { formatPhone, isValidPhone } from '@/lib/format'
+import { isValidPhone } from '@/lib/format'
 import { useDocumentTitle } from '@/lib/hooks'
 
 export default function TrackOrderPage() {
@@ -17,7 +17,7 @@ export default function TrackOrderPage() {
   useDocumentTitle(t.trackOrder)
 
   const track = useMutation({ mutationFn: () => ordersApi.track(number, phone) })
-  const valid = number.trim().length >= 6 && isValidPhone(phone)
+  const valid = /^GL-\d{6}-[0-9A-Z]{4,6}$/.test(number.trim()) && isValidPhone(phone)
 
   return (
     <div className="stack" style={{ gap: 24, maxWidth: 760, margin: '0 auto' }}>
@@ -25,7 +25,7 @@ export default function TrackOrderPage() {
         <span className="eyebrow">Greenleaf</span>
         <h1>{t.trackOrder}</h1>
         <p className="muted" style={{ marginTop: 8 }}>
-          Введите номер заказа и телефон, указанный при оформлении.
+          {t.trackHint}
         </p>
       </div>
       <form
@@ -37,10 +37,10 @@ export default function TrackOrderPage() {
       >
         <div className="form-grid">
           <Field label={t.orderNumber}>
-            <input className="input" value={number} onChange={(e) => setNumber(e.target.value.toUpperCase())} placeholder="GL-261020-0001" />
+            <input className="input" value={number} onChange={(e) => setNumber(e.target.value.toUpperCase().replace(/\s/g, ''))} placeholder="GL-261025-7KQ2MX" maxLength={24} />
           </Field>
           <Field label={t.phone}>
-            <input className="input" value={phone} onChange={(e) => setPhone(e.target.value ? formatPhone(e.target.value) : '')} placeholder="+7 7__ ___ __ __" inputMode="tel" />
+            <PhoneInput value={phone} onChange={setPhone} />
           </Field>
         </div>
         {track.isError && <div className="notice error">{errorMessage(track.error)}</div>}

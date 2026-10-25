@@ -22,7 +22,7 @@ const actionStyle: Record<OrderStatus, string> = {
 const actionLabel: Record<OrderStatus, string> = {
   NEW: 'Вернуть в новые',
   CONFIRMED: 'Подтвердить',
-  SHIPPED: 'Отправлен',
+  SHIPPED: 'Передан в доставку',
   COMPLETED: 'Выполнен',
   CANCELLED: 'Отменить',
 }
@@ -47,7 +47,8 @@ export default function OrderPage() {
   }
 
   const changeStatus = useMutation({
-    mutationFn: (status: OrderStatus) => adminApi.setOrderStatus(orderId, status, statusNote.trim() || undefined),
+    mutationFn: ({ status, restock }: { status: OrderStatus; restock?: boolean }) =>
+      adminApi.setOrderStatus(orderId, status, statusNote.trim() || undefined, restock),
     onSuccess: (o) => {
       apply(o)
       setStatusNote('')
@@ -100,11 +101,20 @@ export default function OrderPage() {
                       className={`btn ${actionStyle[s]}`}
                       disabled={changeStatus.isPending}
                       onClick={() => {
-                        if (s === 'CANCELLED' && !window.confirm('Отменить заказ? Товары вернутся на склад.')) return
-                        changeStatus.mutate(s)
+                        if (s === 'CANCELLED') {
+                          if (!window.confirm('Отменить заказ?')) return
+                          // Goods already handed to a courier may never come back; only the admin knows.
+                          const restock =
+                            order.status !== 'SHIPPED' ||
+                            window.confirm('Товары вернулись к вам?\n\nOK — вернуть их на склад.\nОтмена — не возвращать (товар утерян или остался у клиента).')
+                          changeStatus.mutate({ status: s, restock })
+                          return
+                        }
+                        if (s === 'COMPLETED' && !window.confirm('Отметить заказ выполненным? После этого статус больше не меняется.')) return
+                        changeStatus.mutate({ status: s })
                       }}
                     >
-                      {changeStatus.isPending && changeStatus.variables === s ? <Spinner /> : actionLabel[s]}
+                      {changeStatus.isPending && changeStatus.variables?.status === s ? <Spinner /> : actionLabel[s]}
                     </button>
                   ))}
                 </div>

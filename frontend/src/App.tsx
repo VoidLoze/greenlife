@@ -3,6 +3,7 @@ import { createBrowserRouter, RouterProvider, useParams } from 'react-router'
 import { CartSync } from '@/components/CartSync'
 import { RequireAdmin, RequireAuth } from '@/components/Guards'
 import { Layout } from '@/components/Layout'
+import { RouteError } from '@/components/RouteError'
 import { PageLoader, Toasts } from '@/components/ui'
 import { useLangStore } from '@/i18n'
 import { useAuthStore } from '@/store/auth'
@@ -18,6 +19,9 @@ const LoginPage = lazy(() => import('@/pages/LoginPage'))
 const RegisterPage = lazy(() => import('@/pages/RegisterPage'))
 const AccountPage = lazy(() => import('@/pages/AccountPage'))
 const PartnerPage = lazy(() => import('@/pages/PartnerPage'))
+
+const PrivacyPage = lazy(() => import('@/pages/PrivacyPage'))
+const FavoritesPage = lazy(() => import('@/pages/FavoritesPage'))
 
 const AdminLayout = lazy(() => import('@/admin/AdminLayout'))
 const AdminDashboard = lazy(() => import('@/admin/DashboardPage'))
@@ -41,23 +45,33 @@ function ProductEditorRoute() {
 const router = createBrowserRouter([
   {
     element: <Layout />,
+    errorElement: <RouteError />,
     children: [
-      { index: true, element: <HomePage /> },
-      { path: 'catalog', element: <CatalogPage /> },
-      { path: 'product/:slug', element: <ProductPage /> },
-      { path: 'checkout', element: page(<CheckoutPage />) },
-      { path: 'order/:number', element: page(<OrderSuccessPage />) },
-      { path: 'track', element: page(<TrackOrderPage />) },
-      { path: 'login', element: page(<LoginPage />) },
-      { path: 'register', element: page(<RegisterPage />) },
-      { path: 'partner', element: page(<PartnerPage />) },
-      { path: 'account', element: <RequireAuth>{page(<AccountPage />)}</RequireAuth> },
-      { path: '*', element: <NotFoundPage /> },
+      {
+        // Inside the layout, so a broken page still shows the header and the way back.
+        errorElement: <RouteError />,
+        children: [
+          { index: true, element: <HomePage /> },
+          { path: 'catalog', element: <CatalogPage /> },
+          { path: 'product/:slug', element: <ProductPage /> },
+          { path: 'checkout', element: page(<CheckoutPage />) },
+          { path: 'order/:number', element: page(<OrderSuccessPage />) },
+          { path: 'track', element: page(<TrackOrderPage />) },
+          { path: 'login', element: page(<LoginPage />) },
+          { path: 'register', element: page(<RegisterPage />) },
+          { path: 'partner', element: page(<PartnerPage />) },
+          { path: 'privacy', element: page(<PrivacyPage />) },
+          { path: 'favorites', element: page(<FavoritesPage />) },
+          { path: 'account', element: <RequireAuth>{page(<AccountPage />)}</RequireAuth> },
+          { path: '*', element: <NotFoundPage /> },
+        ],
+      },
     ],
   },
   {
     path: 'admin',
     element: <RequireAdmin>{page(<AdminLayout />)}</RequireAdmin>,
+    errorElement: <RouteError />,
     children: [
       { index: true, element: page(<AdminDashboard />) },
       { path: 'products', element: page(<AdminProducts />) },

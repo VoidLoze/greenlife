@@ -51,6 +51,7 @@ export function MediaCarousel({
   const [drag, setDrag] = useState(0)
   const touch = useRef<{ x: number; y: number; horizontal: boolean | null } | null>(null)
   const thumbs = useRef<HTMLDivElement>(null)
+  const root = useRef<HTMLDivElement>(null)
   const count = slides.length
   const current = Math.min(index, Math.max(count - 1, 0))
 
@@ -61,6 +62,10 @@ export function MediaCarousel({
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null
       if (target?.closest('input, textarea, select')) return
+      // With a window open on top (product window, cart), only a carousel inside that window listens.
+      const dialogs = document.querySelectorAll('[aria-modal="true"]')
+      const top = dialogs[dialogs.length - 1]
+      if (top && !top.contains(root.current)) return
       if (e.key === 'ArrowRight') setIndex((i) => (i + 1) % count)
       if (e.key === 'ArrowLeft') setIndex((i) => (i - 1 + count) % count)
     }
@@ -108,7 +113,7 @@ export function MediaCarousel({
   const caption = active.type === 'image' ? active.media : null
 
   return (
-    <div className="carousel">
+    <div className="carousel" ref={root}>
       <div className="carousel-stage" onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd} onTouchCancel={onTouchEnd}>
         <div
           className={clsx('carousel-track', drag !== 0 && 'dragging')}

@@ -1,11 +1,18 @@
 #!/usr/bin/env bash
 # End-to-end smoke test of the API: auth, roles, cart, checkout, admin product + media, orders.
-# Usage: scripts/smoke.sh [base-url] (default http://localhost:8080)
+# Usage: set -a && source .env && set +a && scripts/smoke.sh [base-url] (default http://localhost:8080)
+# Creates a test user, a cancelled order and an archived/deleted product; run it against a local stack, not production.
 set -uo pipefail
 
 B="${1:-http://localhost:8080}"
 ADMIN_EMAIL="${ADMIN_EMAIL:-admin@greenleaf.kz}"
-ADMIN_PASSWORD="${ADMIN_PASSWORD:-Admin12345}"
+if [[ -z "${ADMIN_PASSWORD:-}" ]]; then
+  echo "ADMIN_PASSWORD is not set. Run: set -a && source .env && set +a" >&2
+  exit 2
+fi
+# A fresh phone per run keeps the open-orders-per-phone limit from tripping on repeated runs.
+PHONE_DIGITS="701$(printf '%07d' $(( (RANDOM * 32768 + RANDOM) % 10000000 )))"
+PHONE_E164="+7$PHONE_DIGITS"
 SEED_DIR="$(cd "$(dirname "$0")/../seed" && pwd)"
 TMP="$(mktemp -d)"
 FAILED=0
@@ -38,19 +45,30 @@ check "api ready" "True" "$(curl -s "$B/api/settings/public" | json "'storeName'
 if [[ "$(curl -s "$B/actuator/health" 2>/dev/null)" == *'"status"'* ]]; then
   check "health" "UP" "$(curl -s "$B/actuator/health" | json "d['status']")"
 fi
+for route in / /catalog /partner /checkout /account /track /admin; do
+  check "page $route" "200" "$(code "$B$route")"
+done
 check "catalog home" "True" "$(curl -s "$B/api/catalog/home" | json "d['productCount'] > 0")"
 SLUG=$(curl -s "$B/api/catalog/products?size=1&sort=price_asc" | json "d['items'][0]['slug']")
 PID=$(curl -s "$B/api/catalog/products/$SLUG" | json "d['card']['id']")
 check "product detail has photos" "True" "$(curl -s "$B/api/catalog/products/$SLUG" | json "len(d['photos']) > 0")"
 check "unknown product 404" "404" "$(code "$B/api/catalog/products/no-such-product")"
+PAGE=$(curl -s "$B/product/$SLUG")
+check "product page has canonical" "True" "$(python3 -c "import sys; print('rel=\"canonical\" href=' in sys.argv[1] and '/product/$SLUG' in sys.argv[1])" "$PAGE")"
+check "product page has schema.org" "True" "$(python3 -c "import sys; print('\"@type\":\"Product\"' in sys.argv[1].replace(' ', ''))" "$PAGE")"
+check "admin page noindex" "True" "$(curl -s "$B/admin" | python3 -c "import sys; print('noindex' in sys.stdin.read())")"
+check "sitemap lists products" "True" "$(curl -s "$B/sitemap.xml" | python3 -c "import sys; print('/product/$SLUG<' in sys.stdin.read())")"
 check "wrong content type 415" "415" "$(code -X POST "$B/api/auth/login" -d 'a=b')"
 
 echo "== auth"
 EMAIL="smoke$(date +%s)@mail.kz"
-REG=$(post /api/auth/register "{\"email\":\"$EMAIL\",\"password\":\"Secret123\",\"fullName\":\"Smoke Test\",\"phone\":\"+7 701 000 00 01\"}" POST -c "$TMP/user.jar")
+REG_BODY="{\"email\":\"$EMAIL\",\"password\":\"Secret123\",\"fullName\":\"Smoke Test\",\"phone\":\"+7 ${PHONE_DIGITS:0:3} ${PHONE_DIGITS:3:3} ${PHONE_DIGITS:6:2} ${PHONE_DIGITS:8:2}\",\"consent\":true}"
+NO_CONSENT_BODY="{\"email\":\"x$EMAIL\",\"password\":\"Secret123\",\"fullName\":\"Smoke Test\"}"
+check "register requires consent" "400" "$(code -H 'Content-Type: application/json' -X POST "$B/api/auth/register" -d "$NO_CONSENT_BODY")"
+REG=$(post /api/auth/register "$REG_BODY" POST -c "$TMP/user.jar")
 UT=$(echo "$REG" | json "d['accessToken']")
-check "register normalizes phone" "+77010000001" "$(echo "$REG" | json "d['user']['phone']")"
-check "weak password rejected" "400" "$(code -H 'Content-Type: application/json' -X POST "$B/api/auth/register" -d '{"email":"weak@mail.kz","password":"123","fullName":"W"}')"
+check "register normalizes phone" "$PHONE_E164" "$(echo "$REG" | json "d['user']['phone']")"
+check "weak password rejected" "400" "$(code -H 'Content-Type: application/json' -X POST "$B/api/auth/register" -d '{"email":"weak@mail.kz","password":"123","fullName":"W","consent":true}')"
 check "me" "$EMAIL" "$(curl -s -H "Authorization: Bearer $UT" "$B/api/auth/me" | json "d['email']")"
 check "user cannot open admin" "403" "$(code -H "Authorization: Bearer $UT" "$B/api/admin/dashboard")"
 check "anonymous cannot open admin" "401" "$(code "$B/api/admin/dashboard")"
@@ -66,21 +84,31 @@ check "quote warns about unknown product" "True" "$(echo "$QUOTE" | json "any(w[
 QUOTE=$(post /api/cart/quote "{\"items\":[{\"productId\":$PID,\"quantity\":1}],\"deliveryMethod\":\"DELIVERY\"}")
 TOTAL=$(echo "$QUOTE" | json "d['total']")
 check "delivery fee applied below threshold" "True" "$(echo "$QUOTE" | json "d['deliveryFee'] > 0")"
+FREE_QTY=$(echo "$QUOTE" | json "int(-(-d['freeDeliveryThreshold'] // d['items'][0]['unitPrice']))")
+FREE_BODY="{\"items\":[{\"productId\":$PID,\"quantity\":$FREE_QTY}],\"deliveryMethod\":\"DELIVERY\"}"
+check "free delivery from threshold (retail)" "0" "$(post /api/cart/quote "$FREE_BODY" | json "int(d['deliveryFee'])")"
 # JSON bodies live in variables: macOS bash 3.2 brace-expands "{a,b}" inside nested "$( ... )".
 CART_BODY="{\"items\":[{\"productId\":$PID,\"quantity\":1}]}"
-CHECKOUT_BASE="\"customerName\":\"Smoke\",\"phone\":\"87010000001\",\"city\":\"Алматы\",\"address\":\"ул. Абая 1\",\"deliveryMethod\":\"DELIVERY\",\"paymentMethod\":\"KASPI\",\"items\":[{\"productId\":$PID,\"quantity\":1}]"
+CHECKOUT_BASE="\"customerName\":\"Smoke\",\"phone\":\"8$PHONE_DIGITS\",\"consent\":true,\"city\":\"Алматы\",\"address\":\"ул. Абая 1\",\"deliveryMethod\":\"DELIVERY\",\"paymentMethod\":\"KASPI\",\"items\":[{\"productId\":$PID,\"quantity\":1}]"
+IDEMPOTENCY_KEY="smoke-$(date +%s)-$RANDOM"
 STALE_CHECKOUT="{$CHECKOUT_BASE,\"expectedTotal\":1}"
-GOOD_CHECKOUT="{$CHECKOUT_BASE,\"expectedTotal\":$TOTAL}"
+GOOD_CHECKOUT="{$CHECKOUT_BASE,\"expectedTotal\":$TOTAL,\"idempotencyKey\":\"$IDEMPOTENCY_KEY\"}"
+NO_CONSENT_CHECKOUT="{${CHECKOUT_BASE/\"consent\":true,/},\"expectedTotal\":$TOTAL}"
 check "server cart saved" "1" "$(post /api/cart "$CART_BODY" PUT -H "Authorization: Bearer $UT" | json "d['itemsCount']")"
+check "checkout requires consent" "400" "$(code -H 'Content-Type: application/json' -X POST "$B/api/orders" -d "$NO_CONSENT_CHECKOUT")"
 check "checkout rejects changed price" "409" "$(code -H 'Content-Type: application/json' -H "Authorization: Bearer $UT" -X POST "$B/api/orders" -d "$STALE_CHECKOUT")"
 ORDER=$(post /api/orders "$GOOD_CHECKOUT" POST -H "Authorization: Bearer $UT")
 NUMBER=$(echo "$ORDER" | json "d['order']['number']")
 OID=$(echo "$ORDER" | json "d['order']['id']")
 check "order has whatsapp link" "True" "$(echo "$ORDER" | json "d['whatsappUrl'].startswith('https://wa.me/')")"
+check "order number format" "True" "$(python3 -c "import re,sys; print(bool(re.fullmatch(r'GL-\d{6}-[0-9A-Z]{6}', sys.argv[1])))" "$NUMBER")"
+check "repeated submit returns same order" "$NUMBER" "$(post /api/orders "$GOOD_CHECKOUT" POST -H "Authorization: Bearer $UT" | json "d['order']['number']")"
 check "cart cleared after order" "0" "$(curl -s -H "Authorization: Bearer $UT" "$B/api/cart" | json "d['itemsCount']")"
 check "my orders" "$NUMBER" "$(curl -s -H "Authorization: Bearer $UT" "$B/api/orders/my" | json "d['items'][0]['number']")"
-check "track with phone" "NEW" "$(curl -s "$B/api/orders/track/$NUMBER?phone=%2B77010000001" | json "d['status']")"
-check "track with wrong phone" "404" "$(code "$B/api/orders/track/$NUMBER?phone=87019999999")"
+TRACK_OK="{\"number\":\"$NUMBER\",\"phone\":\"$PHONE_E164\"}"
+TRACK_BAD="{\"number\":\"$NUMBER\",\"phone\":\"87019999999\"}"
+check "track with phone" "NEW" "$(post /api/orders/track "$TRACK_OK" | json "d['status']")"
+check "track with wrong phone" "404" "$(code -H 'Content-Type: application/json' -X POST "$B/api/orders/track" -d "$TRACK_BAD")"
 
 echo "== admin orders"
 H=(-H "Authorization: Bearer $AT")
@@ -97,6 +125,7 @@ check "publish without photo blocked" "422" "$(code "${H[@]}" -H 'Content-Type: 
 IMG=$(ls "$SEED_DIR/images" | head -1)
 UP=$(curl -s "${H[@]}" -F "file=@$SEED_DIR/images/$IMG" -F kind=PHOTO -F "title=Главное фото" -F "description=Вид спереди" "$B/api/admin/products/$NID/media")
 check "photo upload becomes cover" "True" "$(echo "$UP" | json "d['cover']")"
+check "photo thumbnail is webp" "True" "$(echo "$UP" | json "(d.get('thumbUrl') or '').endswith('.webp')")"
 DOC_UP=$(printf 'Сертификат соответствия' > "$TMP/cert.txt"; curl -s "${H[@]}" -F "file=@$TMP/cert.txt" -F kind=DOCUMENT -F "title=Сертификат" "$B/api/admin/products/$NID/media")
 check "document upload" "DOCUMENT" "$(echo "$DOC_UP" | json "d['kind']")"
 check "fake image rejected" "400" "$(code "${H[@]}" -F "file=@$TMP/cert.txt;filename=fake.png" -F kind=PHOTO "$B/api/admin/products/$NID/media")"

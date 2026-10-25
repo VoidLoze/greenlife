@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import type { ProductDetail } from '@/api/types'
 import { useT } from '@/i18n'
+import { flyToCart } from '@/lib/flyToCart'
 import { whatsappLink } from '@/lib/format'
 import { useSettings } from '@/lib/hooks'
 import { useCartStore } from '@/store/cart'
 import { toast } from '@/store/toast'
 import { WhatsappIcon } from './Icons'
+import { FavoriteButton, ShareButton } from './ProductActions'
 import { PricePair, StockLine } from './ProductCard'
 import { QuantityStepper } from './ui'
 
@@ -33,7 +35,7 @@ export function BuyBox({ product, onCheckout }: { product: ProductDetail; onChec
 
       <div className="row" style={{ justifyContent: 'space-between' }}>
         <StockLine inStock={card.inStock} lowStock={card.lowStock} />
-        {card.lowStock && product.stockQuantity != null && <span className="muted small">≤ {product.stockQuantity} шт.</span>}
+        {card.lowStock && product.stockQuantity != null && <span className="muted small">≤ {product.stockQuantity} {t.pcs}</span>}
       </div>
 
       {inCart > 0 ? (
@@ -58,8 +60,9 @@ export function BuyBox({ product, onCheckout }: { product: ProductDetail; onChec
             type="button"
             className="btn btn-primary btn-lg"
             disabled={!canBuy}
-            onClick={() => {
+            onClick={(e) => {
               add(card.id, qty)
+              flyToCart(e.currentTarget)
               toast.success(`«${name}» — ${t.inCart.toLowerCase()}`)
             }}
           >
@@ -73,6 +76,11 @@ export function BuyBox({ product, onCheckout }: { product: ProductDetail; onChec
           <WhatsappIcon size={18} /> {t.askWhatsapp}
         </a>
       )}
+
+      <div className="buy-extra">
+        <FavoriteButton productId={card.id} variant="full" />
+        <ShareButton title={name} url={productUrl} />
+      </div>
     </div>
   )
 }

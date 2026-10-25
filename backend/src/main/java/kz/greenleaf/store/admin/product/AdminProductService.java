@@ -35,9 +35,9 @@ import kz.greenleaf.store.catalog.repo.ProductTypeRepository;
 import kz.greenleaf.store.common.ApiException;
 import kz.greenleaf.store.common.PageResponse;
 import kz.greenleaf.store.common.Slugify;
-import kz.greenleaf.store.config.AppProperties;
 import kz.greenleaf.store.media.MediaUrls;
 import kz.greenleaf.store.media.StorageTransactions;
+import kz.greenleaf.store.site.StoreSettingsService;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -61,12 +61,12 @@ public class AdminProductService {
     private final StorageTransactions storageTx;
     private final CatalogCacheEvictor cacheEvictor;
     private final JdbcTemplate jdbc;
-    private final int partnerDiscountPercent;
+    private final StoreSettingsService settings;
 
     public AdminProductService(ProductRepository products, ProductMediaRepository mediaRepository,
                                CategoryRepository categories, ProductTypeRepository types, BrandRepository brands,
                                ProductMapper mapper, MediaUrls urls, StorageTransactions storageTx,
-                               CatalogCacheEvictor cacheEvictor, JdbcTemplate jdbc, AppProperties properties) {
+                               CatalogCacheEvictor cacheEvictor, JdbcTemplate jdbc, StoreSettingsService settings) {
         this.products = products;
         this.mediaRepository = mediaRepository;
         this.categories = categories;
@@ -77,7 +77,7 @@ public class AdminProductService {
         this.storageTx = storageTx;
         this.cacheEvictor = cacheEvictor;
         this.jdbc = jdbc;
-        this.partnerDiscountPercent = properties.pricing().partnerDiscountPercent();
+        this.settings = settings;
     }
 
     public record ListFilter(String q, ProductStatus status, Long categoryId, Long brandId, Boolean lowStock,
@@ -122,10 +122,14 @@ public class AdminProductService {
     @Transactional
     public ProductAdminDto update(Long id, ProductUpsertRequest request) {
         Product product = load(id);
-        if (request.version() != null && request.version() != product.getVersion()) {
-            throw ApiException.conflict("stale_data",
-                    "Товар уже изменил другой администратор. Обновите страницу, чтобы не затереть его правки.");
+        if (request.version() == null) {
+            throw ApiException.badRequest("version_required", "Обновите страницу товара и сохраните ещё раз");
         }
+        if (request.version() != product.getVersion()) {
+            throw ApiException.conflict("stale_data",
+                    "Товар уже сохранили в другой вкладке или другой администратор. Обновите страницу, чтобы не затереть те правки.");
+        }
+        Integer stockBefore = product.getStockQuantity();
         if (blankToNull(request.sku()) != null) {
             String sku = request.sku().trim().toUpperCase(Locale.ROOT);
             if (!sku.equals(product.getSku())) {
@@ -140,6 +144,7 @@ public class AdminProductService {
         }
         product.setNameRu(request.nameRu().trim());
         apply(product, request);
+        product.setStockQuantity(mergeStock(stockBefore, request.stockBase(), request.stockQuantity()));
         if (request.status() != null && request.status() != product.getStatus()) {
             if (request.status() == ProductStatus.PUBLISHED) {
                 ProductQuality.assertPublishable(product);
@@ -171,6 +176,9 @@ public class AdminProductService {
     /** Products referenced by orders are archived (order history must keep its images); others are removed. */
     @Transactional
     public DeleteResult delete(Long id) {
+        // Locks the row first: a checkout reserving this product now either finishes before (and the product is
+        // archived because it is in an order) or fails cleanly after the delete.
+        jdbc.queryForList("select id from products where id = ? for update", id);
         Product product = load(id);
         Boolean ordered = jdbc.queryForObject(
                 "select exists(select 1 from order_items where product_id = ?)", Boolean.class, id);
@@ -219,7 +227,8 @@ public class AdminProductService {
         copy.setPartnerPrice(source.getPartnerPrice());
         copy.setOldPrice(source.getOldPrice());
         copy.setVolume(source.getVolume());
-        copy.setStockQuantity(source.getStockQuantity());
+        // The shelf is not doubled by a copy: a tracked stock starts at zero.
+        copy.setStockQuantity(source.getStockQuantity() == null ? null : 0);
         copy.setBadge(source.getBadge());
         copy.setCatalogPage(source.getCatalogPage());
         copy.setVideoUrl(source.getVideoUrl());
@@ -267,7 +276,7 @@ public class AdminProductService {
                         : new TypeRefDto(p.getType().getId(), p.getType().getSlug(), p.getType().getNameRu()),
                 p.getBrand() == null ? null
                         : new BrandRefDto(p.getBrand().getId(), p.getBrand().getSlug(), p.getBrand().getName()),
-                p.getPrice(), p.getPartnerPrice(), p.effectivePartnerPrice(partnerDiscountPercent), p.getOldPrice(),
+                p.getPrice(), p.getPartnerPrice(), p.effectivePartnerPrice(settings.current().partnerDiscountPercent()), p.getOldPrice(),
                 p.getCurrency(), p.getVolume(), p.getStockQuantity(), p.getStatus(), p.isFeatured(), p.getBadge(),
                 p.getCatalogPage(),
                 p.getVideoUrl(),
@@ -287,7 +296,7 @@ public class AdminProductService {
                 p.getId(), p.getSku(), p.getSlug(), p.getNameRu(),
                 p.getBrand() == null ? null : p.getBrand().getName(),
                 p.getCategory() == null ? null : p.getCategory().getNameRu(),
-                p.getPrice(), p.effectivePartnerPrice(partnerDiscountPercent), p.getStockQuantity(), p.getStatus(),
+                p.getPrice(), p.effectivePartnerPrice(settings.current().partnerDiscountPercent()), p.getStockQuantity(), p.getStatus(),
                 p.isFeatured(),
                 urls.url(p.getCoverThumbKey() != null ? p.getCoverThumbKey() : p.getCoverKey()),
                 ProductQuality.evaluate(p).score(),
@@ -391,10 +400,14 @@ public class AdminProductService {
             String q = blankToNull(f.q());
             if (q != null) {
                 String like = "%" + q.toLowerCase(Locale.ROOT).replace("%", "\\%").replace("_", "\\_") + "%";
+                var brand = root.join("brand", JoinType.LEFT);
                 predicates.add(cb.or(
                         cb.like(cb.lower(root.get("nameRu")), like),
+                        cb.like(cb.lower(cb.coalesce(root.get("nameKk"), "")), like),
                         cb.like(cb.lower(root.get("sku")), like),
-                        cb.like(cb.lower(root.get("slug")), like)));
+                        cb.like(cb.lower(root.get("slug")), like),
+                        cb.like(cb.lower(cb.coalesce(root.get("searchKeywords"), "")), like),
+                        cb.like(cb.lower(cb.coalesce(brand.get("name"), "")), like)));
             }
             if (f.status() != null) {
                 predicates.add(cb.equal(root.get("status"), f.status()));
@@ -411,25 +424,36 @@ public class AdminProductService {
             }
             if (Boolean.TRUE.equals(f.noPhoto())) {
                 predicates.add(cb.isNull(root.get("coverKey")));
+                predicates.add(cb.notEqual(root.get("status"), ProductStatus.ARCHIVED));
             }
             return cb.and(predicates.toArray(Predicate[]::new));
         };
     }
 
+    /** Empty prices and untracked stock go last; the id keeps pages stable when values tie. */
     private static Sort sortOf(String sort) {
-        if (sort == null) {
-            return Sort.by(Sort.Direction.DESC, "updatedAt");
-        }
-        return switch (sort) {
+        Sort primary = switch (sort == null ? "" : sort) {
             case "name" -> Sort.by("nameRu");
-            case "price_asc" -> Sort.by(Sort.Direction.ASC, "price");
-            case "price_desc" -> Sort.by(Sort.Direction.DESC, "price");
-            case "stock" -> Sort.by(Sort.Direction.ASC, "stockQuantity");
+            case "price_asc" -> Sort.by(Sort.Order.asc("price").nullsLast());
+            case "price_desc" -> Sort.by(Sort.Order.desc("price").nullsLast());
+            case "stock" -> Sort.by(Sort.Order.asc("stockQuantity").nullsLast());
             case "views" -> Sort.by(Sort.Direction.DESC, "viewCount");
             case "sold" -> Sort.by(Sort.Direction.DESC, "soldCount");
             case "created" -> Sort.by(Sort.Direction.DESC, "createdAt");
             default -> Sort.by(Sort.Direction.DESC, "updatedAt");
         };
+        return primary.and(Sort.by(Sort.Direction.DESC, "id"));
+    }
+
+    /**
+     * The editor sends the stock it was opened with: the admin's change is applied as a difference to the current
+     * value, so units sold while the form was open are not written back onto the shelf.
+     */
+    static Integer mergeStock(Integer current, Integer base, Integer requested) {
+        if (requested == null || base == null || current == null) {
+            return requested;
+        }
+        return Math.max(0, current + (requested - base));
     }
 
     static String blankToNull(String value) {

@@ -1,9 +1,17 @@
 name: greenleaf
 
+# Logs are rotated so a busy month cannot fill the disk.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
+
 services:
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
+    logging: *logging
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-greenleaf}
       POSTGRES_USER: ${POSTGRES_USER:-greenleaf}
@@ -17,10 +25,15 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+    deploy:
+      resources:
+        limits:
+          memory: 768m
 
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    logging: *logging
     command:
       - redis-server
       - --requirepass
@@ -28,7 +41,7 @@ services:
       - --appendonly
       - "yes"
       - --maxmemory
-      - 256mb
+      - 512mb
       - --maxmemory-policy
       - volatile-lru
     volumes:
@@ -42,10 +55,15 @@ services:
       retries: 20
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
+    deploy:
+      resources:
+        limits:
+          memory: 640m
 
   backend:
     build: ./backend
     restart: unless-stopped
+    logging: *logging
     depends_on:
       postgres:
         condition: service_healthy
@@ -59,12 +77,14 @@ services:
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env (at least 32 characters)}
-      REFRESH_COOKIE_SECURE: ${REFRESH_COOKIE_SECURE:-false}
+      # true on a real domain with HTTPS; .env sets false only for local http://localhost.
+      REFRESH_COOKIE_SECURE: ${REFRESH_COOKIE_SECURE:-true}
       APP_PUBLIC_URL: ${APP_PUBLIC_URL:-http://localhost:8080}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:8080,http://localhost:5173}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       ADMIN_NAME: ${ADMIN_NAME:-Администратор}
+      ADMIN_SYNC_PASSWORD: ${ADMIN_SYNC_PASSWORD:-false}
       SEED_ENABLED: ${SEED_ENABLED:-true}
       API_DOCS_ENABLED: ${API_DOCS_ENABLED:-false}
       STORE_PHONE: ${STORE_PHONE:-+77076173928}
@@ -77,21 +97,76 @@ services:
       COMPANY_VIDEO_TITLE: ${COMPANY_VIDEO_TITLE:-История Greenleaf, 25 лет на рынке Китая}
       PARTNER_DISCOUNT_PERCENT: ${PARTNER_DISCOUNT_PERCENT:-50}
       DELIVERY_FEE: ${DELIVERY_FEE:-1500}
-      FREE_DELIVERY_THRESHOLD: ${FREE_DELIVERY_THRESHOLD:-25000}
+      FREE_DELIVERY_THRESHOLD: ${FREE_DELIVERY_THRESHOLD:-7000}
+      FREE_DELIVERY_RETAIL_ONLY: ${FREE_DELIVERY_RETAIL_ONLY:-true}
+      OPEN_ORDERS_PER_PHONE: ${OPEN_ORDERS_PER_PHONE:-3}
+      AUTO_CANCEL_NEW_AFTER_HOURS: ${AUTO_CANCEL_NEW_AFTER_HOURS:-0}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
     volumes:
       - uploads:/data/uploads
       - ./seed:/seed:ro
     expose:
       - "8080"
+    deploy:
+      resources:
+        limits:
+          memory: 1g
 
   frontend:
     build: ./frontend
     restart: unless-stopped
+    logging: *logging
     depends_on:
       backend:
         condition: service_healthy
+    environment:
+      TRUSTED_PROXY: ${TRUSTED_PROXY:-127.0.0.1/32}
+      PUBLIC_URL: ${APP_PUBLIC_URL:-http://localhost:8080}
     ports:
-      - "${HTTP_PORT:-8080}:80"
+      # HTTP_BIND=127.0.0.1 when a TLS proxy on the same server is the only way in (Docker bypasses ufw).
+      - "${HTTP_BIND:-0.0.0.0}:${HTTP_PORT:-8080}:80"
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+
+  # Nightly copy of the database and the uploaded photos into ./backups (kept BACKUP_KEEP_DAYS days) and, with
+  # BACKUP_WEBDAV_URL set, to a cloud disk. Starts only with COMPOSE_PROFILES=backup in .env.
+  # A copy right now (works either way): docker compose run --rm backup once
+  backup:
+    profiles: ["backup"]
+    build:
+      context: ./scripts
+      dockerfile: backup.Dockerfile
+    image: greenleaf-backup
+    restart: unless-stopped
+    logging: *logging
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_USER:-greenleaf}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: ${POSTGRES_DB:-greenleaf}
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
+      BACKUP_HOUR: ${BACKUP_HOUR:-3}
+      BACKUP_WEBDAV_URL: ${BACKUP_WEBDAV_URL:-}
+      BACKUP_WEBDAV_USER: ${BACKUP_WEBDAV_USER:-}
+      BACKUP_WEBDAV_PASSWORD: ${BACKUP_WEBDAV_PASSWORD:-}
+      BACKUP_REMOTE_DIR: ${BACKUP_REMOTE_DIR:-greenleaf-backups}
+      BACKUP_REMOTE_KEEP_DAYS: ${BACKUP_REMOTE_KEEP_DAYS:-60}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      TZ: Asia/Almaty
+    volumes:
+      - ./backups:/backups
+      - uploads:/uploads:ro
+    deploy:
+      resources:
+        limits:
+          memory: 256m
 
 volumes:
   pgdata:

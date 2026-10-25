@@ -1,6 +1,10 @@
-/** Only same-origin relative paths are allowed as post-login redirects. */
+/**
+ * Only same-origin relative paths are allowed as post-login redirects. Browsers treat "/\\host" like "//host", and
+ * strip tabs/newlines from URLs, so those are refused too.
+ */
 export function safeNext(value: string | null, fallback: string) {
-  return value && value.startsWith('/') && !value.startsWith('//') ? value : fallback
+  if (!value || !value.startsWith('/') || /^\/[/\\]/.test(value) || /[\u0000-\u001f\\]/.test(value)) return fallback
+  return value
 }
 
 export function passwordProblem(value: string): string | null {

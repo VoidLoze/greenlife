@@ -14,9 +14,12 @@ type Draft = Partial<AdminCategory> & { nameRu: string }
 
 function CategoryForm({ initial, onClose }: { initial: Draft; onClose: () => void }) {
   const queryClient = useQueryClient()
-  const [draft, setDraft] = useState<Draft>(initial)
+  // Seeded categories store an icon name ("laundry"); the form shows and saves the emoji itself.
+  const [start] = useState<Draft>(() => ({ ...initial, icon: initial.icon ? categoryIcon(initial.icon) : initial.icon }))
+  const [draft, setDraft] = useState<Draft>(start)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setDraft((d) => ({ ...d, [k]: v }))
+  const dirty = JSON.stringify(draft) !== JSON.stringify(start)
 
   const save = useMutation({
     mutationFn: () =>
@@ -28,7 +31,7 @@ function CategoryForm({ initial, onClose }: { initial: Draft; onClose: () => voi
           descriptionRu: nullIfBlank(draft.descriptionRu),
           descriptionKk: nullIfBlank(draft.descriptionKk),
           icon: nullIfBlank(draft.icon),
-          sortOrder: Number(draft.sortOrder ?? 0) || 0,
+          sortOrder: draft.sortOrder,
         },
         draft.id,
       ),
@@ -46,7 +49,7 @@ function CategoryForm({ initial, onClose }: { initial: Draft; onClose: () => voi
   })
 
   return (
-    <Modal open title={draft.id ? 'Редактировать категорию' : 'Новая категория'} onClose={onClose}>
+    <Modal open title={draft.id ? 'Редактировать категорию' : 'Новая категория'} onClose={onClose} dirty={dirty && !save.isPending}>
       <form
         className="stack"
         onSubmit={(e) => {
@@ -68,8 +71,17 @@ function CategoryForm({ initial, onClose }: { initial: Draft; onClose: () => voi
             <Field label="Иконка" hint="Эмодзи">
               <input className="input" value={draft.icon ?? ''} maxLength={8} onChange={(e) => set('icon', e.target.value)} />
             </Field>
-            <Field label="Порядок">
-              <input className="input" inputMode="numeric" value={draft.sortOrder ?? 0} onChange={(e) => set('sortOrder', Number(e.target.value.replace(/\D/g, '')) || 0)} />
+            <Field label="Порядок" hint="Меньше — выше в списке">
+              <input
+                className="input"
+                inputMode="numeric"
+                value={draft.sortOrder ?? ''}
+                placeholder="В конец"
+                onChange={(e) => {
+                  const digits = e.target.value.replace(/\D/g, '')
+                  set('sortOrder', digits ? Number(digits) : undefined)
+                }}
+              />
             </Field>
           </div>
         </div>
@@ -100,6 +112,7 @@ function TypeForm({ initial, category, onClose }: { initial: TypeDraft; category
   const [draft, setDraft] = useState<TypeDraft>(initial)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const set = <K extends keyof TypeDraft>(k: K, v: TypeDraft[K]) => setDraft((d) => ({ ...d, [k]: v }))
+  const dirty = JSON.stringify(draft) !== JSON.stringify(initial)
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: ['admin', 'categories'] })
     queryClient.invalidateQueries({ queryKey: ['categories'] })
@@ -142,7 +155,7 @@ function TypeForm({ initial, category, onClose }: { initial: TypeDraft; category
 
   const count = draft.productCount ?? 0
   return (
-    <Modal open title={draft.id ? 'Вид товара' : `Новый вид · ${category.nameRu}`} onClose={onClose}>
+    <Modal open title={draft.id ? 'Вид товара' : `Новый вид · ${category.nameRu}`} onClose={onClose} dirty={dirty && !save.isPending}>
       <form
         className="stack"
         onSubmit={(e) => {
@@ -230,7 +243,7 @@ export default function CategoriesPage() {
   return (
     <>
       <AdminHead eyebrow="Каталог" title="Категории">
-        <button type="button" className="btn btn-gold" onClick={() => setEditing({ nameRu: '', sortOrder: (data?.length ?? 0) + 1 })}>
+        <button type="button" className="btn btn-gold" onClick={() => setEditing({ nameRu: '' })}>
           + Категория
         </button>
       </AdminHead>

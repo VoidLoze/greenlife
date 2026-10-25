@@ -67,9 +67,9 @@ public interface ProductRepository extends JpaRepository<Product, Long>, JpaSpec
     @Query("""
             update Product p
                set p.stockQuantity = case when p.stockQuantity is null then null else p.stockQuantity - :qty end,
-                   p.soldCount = p.soldCount + :qty,
-                   p.version = p.version + 1
+                   p.soldCount = p.soldCount + :qty
              where p.id = :id and (p.stockQuantity is null or p.stockQuantity >= :qty)
+               and p.status = kz.greenleaf.store.catalog.domain.ProductStatus.PUBLISHED and p.price is not null
             """)
     int reserveStock(@Param("id") Long id, @Param("qty") int qty);
 
@@ -77,8 +77,7 @@ public interface ProductRepository extends JpaRepository<Product, Long>, JpaSpec
     @Query("""
             update Product p
                set p.stockQuantity = case when p.stockQuantity is null then null else p.stockQuantity + :qty end,
-                   p.soldCount = case when p.soldCount >= :qty then p.soldCount - :qty else 0 end,
-                   p.version = p.version + 1
+                   p.soldCount = case when p.soldCount >= :qty then p.soldCount - :qty else 0 end
              where p.id = :id
             """)
     int releaseStock(@Param("id") Long id, @Param("qty") int qty);

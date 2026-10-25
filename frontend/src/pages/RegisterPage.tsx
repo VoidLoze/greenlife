@@ -3,9 +3,9 @@ import { Link, useNavigate, useSearchParams } from 'react-router'
 import { useMutation } from '@tanstack/react-query'
 import clsx from 'clsx'
 import { problemOf } from '@/api/client'
-import { Field, Spinner } from '@/components/ui'
+import { Field, PhoneInput, Spinner } from '@/components/ui'
 import { useT } from '@/i18n'
-import { formatPhone, isValidPhone } from '@/lib/format'
+import { isValidPhone } from '@/lib/format'
 import { useDocumentTitle } from '@/lib/hooks'
 import { useAuthStore } from '@/store/auth'
 import { toast } from '@/store/toast'
@@ -17,6 +17,7 @@ export default function RegisterPage() {
   const [params] = useSearchParams()
   const register = useAuthStore((s) => s.register)
   const [form, setForm] = useState({ fullName: '', email: '', phone: '', password: '' })
+  const [consent, setConsent] = useState(false)
   const [errors, setErrors] = useState<Record<string, string>>({})
   useDocumentTitle(t.register)
 
@@ -27,9 +28,10 @@ export default function RegisterPage() {
         email: form.email.trim(),
         password: form.password,
         phone: form.phone || undefined,
+        consent,
       }),
     onSuccess: (user) => {
-      toast.success(`Добро пожаловать, ${user.fullName}!`)
+      toast.success(`${t.welcome}, ${user.fullName}!`)
       navigate(safeNext(params.get('next'), '/account'), { replace: true })
     },
     onError: (error) => setErrors(problemOf(error).errors ?? {}),
@@ -37,11 +39,11 @@ export default function RegisterPage() {
 
   const submit = () => {
     const e: Record<string, string> = {}
-    if (form.fullName.trim().length < 2) e.fullName = 'Укажите имя'
-    if (!isEmail(form.email)) e.email = 'Некорректный email'
-    if (form.phone && !isValidPhone(form.phone)) e.phone = 'Введите номер полностью'
-    const pwd = passwordProblem(form.password)
-    if (pwd) e.password = pwd
+    if (form.fullName.trim().length < 2) e.fullName = t.errName
+    if (!isEmail(form.email)) e.email = t.errEmail
+    if (form.phone && !isValidPhone(form.phone)) e.phone = t.errPhone
+    if (passwordProblem(form.password)) e.password = t.errPassword
+    if (!consent) e.consent = t.errConsentRegister
     setErrors(e)
     if (!Object.keys(e).length) mutation.mutate()
   }
@@ -67,12 +69,29 @@ export default function RegisterPage() {
       <Field label={t.email} error={errors.email}>
         <input className={clsx('input', errors.email && 'invalid')} type="email" value={form.email} onChange={(e) => set('email', e.target.value)} autoComplete="email" />
       </Field>
-      <Field label={`${t.phone} (необязательно)`} error={errors.phone}>
-        <input className={clsx('input', errors.phone && 'invalid')} value={form.phone} onChange={(e) => set('phone', e.target.value ? formatPhone(e.target.value) : '')} placeholder="+7 7__ ___ __ __" inputMode="tel" autoComplete="tel" />
+      <Field label={`${t.phone} (${t.optional})`} error={errors.phone}>
+        <PhoneInput className={clsx('input', errors.phone && 'invalid')} value={form.phone} onChange={(v: string) => set('phone', v)} />
       </Field>
-      <Field label={t.password} error={errors.password} hint="От 8 символов, буквы и цифры">
+      <Field label={t.password} error={errors.password} hint={t.passwordHint}>
         <input className={clsx('input', errors.password && 'invalid')} type="password" value={form.password} onChange={(e) => set('password', e.target.value)} autoComplete="new-password" />
       </Field>
+      <label className={clsx('consent', errors.consent && 'invalid')}>
+        <input
+          type="checkbox"
+          checked={consent}
+          onChange={(e) => {
+            setConsent(e.target.checked)
+            setErrors(({ consent: _c, ...rest }) => rest)
+          }}
+        />
+        <span>
+          {t.consentRegisterLabel}{' '}
+          <Link to="/privacy" target="_blank" className="btn-link">
+            {t.consentLink}
+          </Link>
+        </span>
+      </label>
+      {errors.consent && <small className="field-error">{errors.consent}</small>}
       {mutation.isError && !Object.keys(errors).length && <div className="notice error">{problemOf(mutation.error).detail}</div>}
       <button type="submit" className="btn btn-primary btn-lg" disabled={mutation.isPending}>
         {mutation.isPending ? <Spinner /> : t.register}

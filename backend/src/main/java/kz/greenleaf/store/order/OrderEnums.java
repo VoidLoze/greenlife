@@ -36,6 +36,20 @@ public final class OrderEnums {
             return next().contains(target);
         }
 
+        /** A pickup order is never handed to a courier. */
+        public Set<OrderStatus> nextFor(DeliveryMethod method) {
+            Set<OrderStatus> next = next();
+            if (method == DeliveryMethod.PICKUP && next.contains(SHIPPED)) {
+                next = EnumSet.copyOf(next);
+                next.remove(SHIPPED);
+            }
+            return next;
+        }
+
+        public boolean canMoveTo(OrderStatus target, DeliveryMethod method) {
+            return nextFor(method).contains(target);
+        }
+
         public String labelRu() {
             return switch (this) {
                 case NEW -> "Новый";

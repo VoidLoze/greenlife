@@ -192,6 +192,12 @@ public class CatalogService {
         return new HomeDto(loadCards(featured), loadCards(bestsellers), loadCards(newest), categoryList, total);
     }
 
+    /** Favorites and recently viewed live in the browser as ids; hidden or deleted products simply drop out. */
+    public List<ProductCardDto> publishedCards(List<Long> ids) {
+        List<Long> wanted = ids.stream().filter(Objects::nonNull).distinct().limit(ProductQuery.MAX_PAGE_SIZE).toList();
+        return loadCards(wanted).stream().filter(c -> c.status() == ProductStatus.PUBLISHED).toList();
+    }
+
     public Long publishedIdBySlug(String slug) {
         return products.findBySlug(slug)
                 .filter(p -> p.getStatus() == ProductStatus.PUBLISHED)

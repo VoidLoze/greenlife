@@ -33,14 +33,45 @@ export function useDocumentTitle(title: string | undefined) {
   }, [title])
 }
 
-/** Locks page scroll while a drawer or modal is open. */
+/** Tells search engines not to index a "not found" page that still answers 200 (the app is a single page). */
+export function useNoIndex(active = true) {
+  useEffect(() => {
+    if (!active) return
+    const meta = document.createElement('meta')
+    meta.name = 'robots'
+    meta.content = 'noindex'
+    document.head.appendChild(meta)
+    return () => meta.remove()
+  }, [active])
+}
+
+/** Page-specific description for search results; the default from index.html comes back on leaving. */
+export function useMetaDescription(text: string | null | undefined) {
+  useEffect(() => {
+    const meta = document.querySelector<HTMLMetaElement>('meta[name="description"]')
+    if (!meta || !text) return
+    const previous = meta.content
+    meta.content = text.length > 300 ? `${text.slice(0, 297)}…` : text
+    return () => {
+      meta.content = previous
+    }
+  }, [text])
+}
+
+let scrollLocks = 0
+
+/**
+ * Locks page scroll while a drawer or modal is open. Locks are counted: windows open and close in any order (the
+ * product window closes while the cart opens), and the page scrolls again only when the last one is gone.
+ */
 export function useScrollLock(locked: boolean) {
   useEffect(() => {
     if (!locked) return
-    const previous = document.body.style.overflow
+    scrollLocks++
     document.body.style.overflow = 'hidden'
     return () => {
-      document.body.style.overflow = previous
+      scrollLocks = Math.max(0, scrollLocks - 1)
+      if (scrollLocks === 0) document.body.style.overflow = ''
     }
   }, [locked])
 }

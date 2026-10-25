@@ -5,7 +5,7 @@ import clsx from 'clsx'
 import { catalogApi } from '@/api/endpoints'
 import type { TypeRef } from '@/api/types'
 import { useT } from '@/i18n'
-import { money, pluralRu } from '@/lib/format'
+import { money } from '@/lib/format'
 import { useClickOutside, useDebounced } from '@/lib/hooks'
 import { Highlight } from './Highlight'
 import { ChevronRight, CloseIcon, SearchIcon } from './Icons'
@@ -208,7 +208,7 @@ export function SearchBox() {
                 </>
               ) : (
                 <>
-                  {t.found}: <b>{data.total}</b> {pluralRu(data.total, 'товар', 'товара', 'товаров')}
+                  {t.found}: <b>{t.countProducts(data.total)}</b>
                 </>
               )}
               {typed.length === 1 && !pending && <span className="search-tip">{t.keepTyping}</span>}
@@ -304,7 +304,7 @@ export function SearchBox() {
             const props = optionProps('all')
             return (
               <div className={clsx('search-all', props['aria-selected'] && 'active')} {...props}>
-                {t.showAllResults} {data.total} {pluralRu(data.total, 'товар', 'товара', 'товаров')}
+                {t.showAllResults} {t.countProducts(data.total)}
                 <ChevronRight size={16} />
               </div>
             )

@@ -27,7 +27,7 @@ export default function ProductsPage() {
     lowStock: params.get('lowStock') === 'true',
     noPhoto: params.get('noPhoto') === 'true',
     sort: params.get('sort') ?? '',
-    page: Math.max(0, Number(params.get('page') ?? 1) - 1),
+    page: Math.max(0, (Number.parseInt(params.get('page') ?? '1', 10) || 1) - 1),
     size: 30,
   }
 
@@ -58,6 +58,7 @@ export default function ProductsPage() {
     onError: (e) => toast.error(errorMessage(e)),
   })
   const duplicate = useMutation({
+    mutationKey: ['duplicate-from-list'],
     mutationFn: (id: number) => adminApi.duplicate(id),
     onSuccess: (p) => {
       toast.success('Создана копия товара (черновик)')
@@ -81,6 +82,12 @@ export default function ProductsPage() {
 
   const data = list.data
   const page = (filter.page ?? 0) + 1
+
+  // After deleting the last items of the last page, step back instead of showing an empty page.
+  useEffect(() => {
+    if (data && data.totalPages > 0 && page > data.totalPages) setParam('page', data.totalPages > 1 ? String(data.totalPages) : undefined)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data?.totalPages, page])
 
   return (
     <>
@@ -188,7 +195,7 @@ export default function ProductsPage() {
                   </td>
                   <td className="num">{money(p.price)}</td>
                   <td className="num muted">{p.partnerPrice != null ? money(p.partnerPrice) : 'авто'}</td>
-                  <td className="num" style={{ color: p.stockQuantity != null && p.stockQuantity <= 3 ? 'var(--warning)' : undefined }}>
+                  <td className="num" style={{ color: p.stockQuantity != null && p.stockQuantity <= 5 ? 'var(--warning)' : undefined }}>
                     {p.stockQuantity ?? '∞'}
                   </td>
                   <td>
@@ -209,7 +216,13 @@ export default function ProductsPage() {
                           Опубл.
                         </button>
                       )}
-                      <button type="button" className="btn btn-ghost btn-sm" onClick={() => duplicate.mutate(p.id)} title="Дублировать">
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        disabled={duplicate.isPending}
+                        onClick={() => !duplicate.isPending && duplicate.mutate(p.id)}
+                        title="Дублировать"
+                      >
                         ⧉
                       </button>
                       {p.status === 'PUBLISHED' && (

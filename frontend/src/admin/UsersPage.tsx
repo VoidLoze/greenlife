@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { adminApi } from '@/api/admin'
 import { errorMessage } from '@/api/client'
@@ -36,7 +36,18 @@ export default function UsersPage() {
     onError: (e) => toast.error(errorMessage(e)),
   })
 
+  const [issued, setIssued] = useState<{ name: string; password: string } | null>(null)
+  const resetPassword = useMutation({
+    mutationFn: (u: User) => adminApi.resetPassword(u.id).then((r) => ({ name: u.fullName, password: r.temporaryPassword })),
+    onSuccess: (r) => setIssued(r),
+    onError: (e) => toast.error(errorMessage(e)),
+  })
+
   const data = list.data
+
+  useEffect(() => {
+    if (data && data.totalPages > 0 && page > data.totalPages) setPage(data.totalPages)
+  }, [data, page])
 
   return (
     <>
@@ -68,8 +79,35 @@ export default function UsersPage() {
         />
       </div>
       <p className="muted small" style={{ marginBottom: 12 }}>
-        «Партнёр» включает партнёрские цены. Смена роли или блокировка сразу завершает все сеансы пользователя.
+        «Партнёр» включает партнёрские цены. Смена роли или блокировка сразу завершает все сеансы пользователя. Забыл пароль —
+        «Новый пароль»: покупатель получит временный пароль от вас и сменит его в личном кабинете.
       </p>
+
+      {issued && (
+        <div className="panel notice-panel" role="status">
+          <div>
+            <strong>Временный пароль для {issued.name}:</strong> <code className="temp-password">{issued.password}</code>
+            <p className="muted small">Передайте его покупателю (например, в WhatsApp). Старый пароль больше не работает, все сеансы завершены.</p>
+          </div>
+          <div className="row">
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={() =>
+                navigator.clipboard?.writeText(issued.password).then(
+                  () => toast.success('Скопировано'),
+                  () => toast.error('Не удалось скопировать — выделите пароль вручную'),
+                )
+              }
+            >
+              Копировать
+            </button>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setIssued(null)}>
+              Скрыть
+            </button>
+          </div>
+        </div>
+      )}
 
       {data && data.items.length === 0 ? (
         <div className="panel">
@@ -87,6 +125,7 @@ export default function UsersPage() {
                 <th>Активен</th>
                 <th>Регистрация</th>
                 <th>Последний вход</th>
+                <th aria-label="Действия" />
               </tr>
             </thead>
             <tbody>
@@ -131,6 +170,20 @@ export default function UsersPage() {
                     </td>
                     <td className="muted nowrap">{dateTime(u.createdAt)}</td>
                     <td className="muted nowrap">{dateTime(u.lastLoginAt)}</td>
+                    <td>
+                      {!self && (
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-sm nowrap"
+                          disabled={resetPassword.isPending}
+                          onClick={() =>
+                            window.confirm(`Выдать ${u.fullName} новый временный пароль? Старый перестанет работать.`) && resetPassword.mutate(u)
+                          }
+                        >
+                          Новый пароль
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 )
               })}

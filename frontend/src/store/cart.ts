@@ -7,12 +7,15 @@ const MAX_QTY = 99
 
 interface CartState {
   lines: CartLine[]
+  /** The account this cart was filled under (null = a guest's cart). */
+  ownerId: number | null
   drawerOpen: boolean
   add: (productId: number, quantity?: number) => void
   setQuantity: (productId: number, quantity: number) => void
   remove: (productId: number) => void
   clear: () => void
   replaceFromQuote: (quote: Quote) => void
+  claim: (userId: number | null) => void
   openDrawer: () => void
   closeDrawer: () => void
 }
@@ -25,6 +28,7 @@ export const useCartStore = create<CartState>()(
   persist(
     (set, get) => ({
       lines: [],
+      ownerId: null,
       drawerOpen: false,
       add: (productId, quantity = 1) => {
         const lines = [...get().lines]
@@ -56,10 +60,21 @@ export const useCartStore = create<CartState>()(
           next.every((l, idx) => l.productId === get().lines[idx]?.productId && l.quantity === get().lines[idx]?.quantity)
         if (!same) set({ lines: next })
       },
+      /**
+       * A cart left behind by an account whose session ended (expired while the tab was closed) belongs to that
+       * account — it is still saved on the server — and must not become the next visitor's or merge into another
+       * account. A guest's cart is kept and merged on login.
+       */
+      claim: (userId) => {
+        const { ownerId } = get()
+        if (ownerId === userId) return
+        if (ownerId != null) set({ lines: [], ownerId: userId })
+        else set({ ownerId: userId })
+      },
       openDrawer: () => set({ drawerOpen: true }),
       closeDrawer: () => set({ drawerOpen: false }),
     }),
-    { name: 'gl-cart', partialize: (s) => ({ lines: s.lines }) },
+    { name: 'gl-cart', partialize: (s) => ({ lines: s.lines, ownerId: s.ownerId }) },
   ),
 )
 

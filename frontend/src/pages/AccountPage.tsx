@@ -5,14 +5,14 @@ import clsx from 'clsx'
 import { errorMessage } from '@/api/client'
 import { authApi, ordersApi } from '@/api/endpoints'
 import { OrderDetails, statusBadge } from '@/components/OrderView'
-import { EmptyState, Field, Modal, Pagination, PageLoader, Spinner } from '@/components/ui'
+import { EmptyState, Field, Modal, Pagination, PageLoader, PhoneInput, Spinner } from '@/components/ui'
 import { useT } from '@/i18n'
 import { dateTime, formatPhone, isValidPhone, money } from '@/lib/format'
 import { useDocumentTitle } from '@/lib/hooks'
 import { passwordProblem } from '@/lib/validation'
 import { useAuthStore } from '@/store/auth'
+import { useCartStore } from '@/store/cart'
 import { toast } from '@/store/toast'
-import { tokenStore } from '@/api/client'
 
 type Tab = 'orders' | 'profile' | 'security'
 
@@ -26,18 +26,46 @@ function OrdersTab() {
     queryFn: () => ordersApi.myOrder(openNumber!),
     enabled: !!openNumber,
   })
-  const whatsapp = useMutation({
-    mutationFn: (number: string) => ordersApi.whatsapp(number),
-    onSuccess: (res) => window.open(res.url, '_blank', 'noopener'),
+  // Fetched before the click: a window opened after waiting for the server is blocked by phone browsers.
+  const openOrder = detail.data && detail.data.status !== 'CANCELLED' && detail.data.status !== 'COMPLETED' ? detail.data.number : null
+  const whatsapp = useQuery({
+    queryKey: ['my-order-wa', openOrder],
+    queryFn: () => ordersApi.whatsapp(openOrder!),
+    enabled: !!openOrder,
   })
 
+  const repeat = (items: { productId: number | null; quantity: number }[]) => {
+    const available = items.filter((i) => i.productId != null)
+    if (!available.length) {
+      toast.error(t.repeatOrderNone)
+      return
+    }
+    const cart = useCartStore.getState()
+    available.forEach((i) => cart.add(i.productId!, i.quantity))
+    setOpenNumber(null)
+    cart.openDrawer()
+    toast.success(t.repeatOrderDone)
+  }
+
   if (orders.isLoading) return <PageLoader />
+  if (orders.isError) {
+    return (
+      <div className="notice error row" style={{ justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+        <span>
+          {t.ordersLoadFailed} {errorMessage(orders.error)}
+        </span>
+        <button type="button" className="btn btn-ghost btn-sm" onClick={() => void orders.refetch()} disabled={orders.isFetching}>
+          {orders.isFetching ? <Spinner /> : t.retry}
+        </button>
+      </div>
+    )
+  }
   if (!orders.data?.items.length) {
     return (
       <EmptyState
         icon="📦"
-        title="Заказов пока нет"
-        text="Здесь появится история ваших покупок."
+        title={t.noOrders}
+        text={t.noOrdersHint}
         action={
           <Link to="/catalog" className="btn btn-primary">
             {t.goToCatalog}
@@ -57,22 +85,27 @@ function OrdersTab() {
               {dateTime(o.createdAt)}
             </span>
           </span>
-          <span className="muted small">{o.itemsCount} шт. · {o.deliveryMethod === 'DELIVERY' ? t.deliveryCourier : t.pickup}</span>
+          <span className="muted small">{o.itemsCount} {t.pcs} · {o.deliveryMethod === 'DELIVERY' ? t.deliveryCourier : t.pickup}</span>
           <strong>{money(o.total)}</strong>
-          <span className={`badge ${statusBadge[o.status]}`}>{o.statusLabel}</span>
+          <span className={`badge ${statusBadge[o.status]}`}>{t.orderStatus[o.status] ?? o.statusLabel}</span>
         </button>
       ))}
       <Pagination page={page} totalPages={orders.data.totalPages} onChange={setPage} />
-      <Modal open={!!openNumber} title={`Заказ ${openNumber ?? ''}`} onClose={() => setOpenNumber(null)}>
+      <Modal open={!!openNumber} title={`${t.order} ${openNumber ?? ''}`} onClose={() => setOpenNumber(null)}>
         {detail.data ? (
           <div className="stack" style={{ gap: 18 }}>
             <OrderDetails order={detail.data} />
-            {detail.data.status !== 'CANCELLED' && detail.data.status !== 'COMPLETED' && (
-              <button type="button" className="btn btn-whatsapp" onClick={() => whatsapp.mutate(detail.data.number)} disabled={whatsapp.isPending}>
-                {t.sendToWhatsapp}
-              </button>
+            <button type="button" className="btn btn-primary" onClick={() => repeat(detail.data.items)}>
+              {t.repeatOrder}
+            </button>
+            {openOrder && (
+              <a className={clsx('btn btn-whatsapp', !whatsapp.data && 'is-disabled')} href={whatsapp.data?.url} target="_blank" rel="noreferrer" aria-disabled={!whatsapp.data}>
+                {whatsapp.isLoading ? <Spinner /> : t.sendToWhatsapp}
+              </a>
             )}
           </div>
+        ) : detail.isError ? (
+          <div className="notice error">{errorMessage(detail.error)}</div>
         ) : (
           <PageLoader />
         )}
@@ -91,7 +124,7 @@ function ProfileTab() {
     mutationFn: () => authApi.updateProfile({ fullName: fullName.trim(), phone: phone || undefined }),
     onSuccess: (u) => {
       setUser(u)
-      toast.success('Профиль сохранён')
+      toast.success(t.profileSaved)
     },
   })
   const phoneInvalid = !!phone && !isValidPhone(phone)
@@ -105,14 +138,14 @@ function ProfileTab() {
         if (!phoneInvalid && fullName.trim().length >= 2) save.mutate()
       }}
     >
-      <Field label={t.email} hint="Email используется для входа и не меняется">
+      <Field label={t.email} hint={t.emailFixed}>
         <input className="input" value={user.email} disabled />
       </Field>
       <Field label={t.fullName}>
         <input className="input" value={fullName} onChange={(e) => setFullName(e.target.value)} />
       </Field>
-      <Field label={t.phone} error={phoneInvalid ? 'Введите номер полностью' : undefined}>
-        <input className={clsx('input', phoneInvalid && 'invalid')} value={phone} onChange={(e) => setPhone(e.target.value ? formatPhone(e.target.value) : '')} inputMode="tel" />
+      <Field label={t.phone} error={phoneInvalid ? t.errPhone : undefined}>
+        <PhoneInput className={clsx('input', phoneInvalid && 'invalid')} value={phone} onChange={setPhone} />
       </Field>
       {save.isError && <div className="notice error">{errorMessage(save.error)}</div>}
       <button type="submit" className="btn btn-primary" disabled={save.isPending} style={{ alignSelf: 'flex-start' }}>
@@ -123,26 +156,26 @@ function ProfileTab() {
 }
 
 function SecurityTab() {
+  const { t } = useT()
   const navigate = useNavigate()
   const apply = useAuthStore((s) => s.apply)
   const [current, setCurrent] = useState('')
   const [next, setNext] = useState('')
-  const problem = next ? passwordProblem(next) : null
+  const problem = next && passwordProblem(next) ? t.errPassword : null
   const change = useMutation({
     mutationFn: () => authApi.changePassword(current, next),
     onSuccess: (auth) => {
       apply(auth)
       setCurrent('')
       setNext('')
-      toast.success('Пароль изменён. Остальные сеансы завершены.')
+      toast.success(t.passwordChanged)
     },
   })
   const logoutAll = useMutation({
     mutationFn: () => authApi.logoutAll(),
     onSuccess: () => {
-      tokenStore.set(null)
-      useAuthStore.setState({ status: 'anonymous', user: null })
-      toast.info('Вы вышли на всех устройствах')
+      useAuthStore.getState().signOutLocally()
+      toast.info(t.loggedOutEverywhere)
       navigate('/login')
     },
   })
@@ -157,23 +190,24 @@ function SecurityTab() {
           if (current && next && !problem) change.mutate()
         }}
       >
-        <h3>Смена пароля</h3>
-        <Field label="Текущий пароль">
+        <h3>{t.changePassword}</h3>
+        <Field label={t.currentPassword}>
           <input className="input" type="password" value={current} onChange={(e) => setCurrent(e.target.value)} autoComplete="current-password" />
         </Field>
-        <Field label="Новый пароль" error={problem ?? undefined}>
+        <Field label={t.newPassword} error={problem ?? undefined} hint={t.passwordHint}>
           <input className={clsx('input', problem && 'invalid')} type="password" value={next} onChange={(e) => setNext(e.target.value)} autoComplete="new-password" />
         </Field>
         {change.isError && <div className="notice error">{errorMessage(change.error)}</div>}
         <button type="submit" className="btn btn-primary" disabled={change.isPending || !current || !next || !!problem} style={{ alignSelf: 'flex-start' }}>
-          {change.isPending ? <Spinner /> : 'Изменить пароль'}
+          {change.isPending ? <Spinner /> : t.changePasswordBtn}
         </button>
       </form>
       <div className="stack" style={{ gap: 10 }}>
-        <h3>Сеансы</h3>
-        <p className="muted">Если вы входили с чужого устройства — завершите все сеансы.</p>
+        <h3>{t.sessions}</h3>
+        <p className="muted">{t.sessionsHint}</p>
+        {logoutAll.isError && <div className="notice error">{errorMessage(logoutAll.error)}</div>}
         <button type="button" className="btn btn-danger" onClick={() => logoutAll.mutate()} disabled={logoutAll.isPending} style={{ alignSelf: 'flex-start' }}>
-          Выйти на всех устройствах
+          {t.logoutAll}
         </button>
       </div>
     </div>
@@ -194,7 +228,7 @@ export default function AccountPage() {
   const tabs: [Tab, string][] = [
     ['orders', t.myOrders],
     ['profile', t.profile],
-    ['security', 'Безопасность'],
+    ['security', t.security],
   ]
 
   return (
@@ -204,8 +238,8 @@ export default function AccountPage() {
           <span className="eyebrow">{t.account}</span>
           <h1>{user.fullName}</h1>
           <div className="row wrap" style={{ marginTop: 10 }}>
-            {user.partner && <span className="badge badge-gold">★ Партнёр</span>}
-            {user.role === 'ADMIN' && <span className="badge badge-green">Администратор</span>}
+            {user.partner && <span className="badge badge-gold">★ {t.partnerBadge}</span>}
+            {user.role === 'ADMIN' && <span className="badge badge-green">{t.adminBadge}</span>}
             <span className="muted small">{user.email}</span>
           </div>
         </div>

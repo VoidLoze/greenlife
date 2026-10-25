@@ -53,6 +53,8 @@ export interface PublicSettings {
   workingHours: string
   deliveryFee: number
   freeDeliveryThreshold: number
+  /** Only retail-price orders earn free delivery; partners get it on the day they buy the card. */
+  freeDeliveryRetailOnly: boolean
   partnerDiscountPercent: number
   maxQuantityPerItem: number
   companyVideoUrl: string | null
@@ -280,7 +282,8 @@ export interface Quote {
   savings: number
   deliveryMethod: DeliveryMethod
   deliveryFee: number
-  freeDeliveryThreshold: number
+  /** null — this order cannot earn free delivery (partner prices). */
+  freeDeliveryThreshold: number | null
   amountToFreeDelivery: number
   total: number
   currency: string
@@ -358,8 +361,10 @@ export interface CheckoutRequest {
   deliveryMethod: DeliveryMethod
   paymentMethod: PaymentMethod
   items: CartLine[]
-  expectedTotal?: number
+  expectedTotal: number
   website?: string
+  consent: boolean
+  idempotencyKey: string
 }
 
 export interface CheckoutResponse {

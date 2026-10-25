@@ -1,21 +1,21 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import clsx from 'clsx'
 import { problemOf } from '@/api/client'
 import { ordersApi } from '@/api/endpoints'
 import type { DeliveryMethod, PaymentMethod } from '@/api/types'
 import { DeliveryProgress, QuoteSummary, QuoteWarnings } from '@/components/CartDrawer'
 import { BagIcon } from '@/components/Icons'
-import { EmptyState, Field, PageLoader, Spinner } from '@/components/ui'
+import { DeliveryNote } from '@/components/Promo'
+import { EmptyState, Field, PageLoader, PhoneInput, Spinner } from '@/components/ui'
 import { useT } from '@/i18n'
 import { formatPhone, isValidPhone, money } from '@/lib/format'
 import { useDocumentTitle, useSettings } from '@/lib/hooks'
+import { loadGuestContact, saveGuestContact, saveOrderReceipt } from '@/lib/session'
 import { useQuote } from '@/lib/useQuote'
 import { useAuthStore } from '@/store/auth'
 import { useCartStore } from '@/store/cart'
-
-const CONTACT_KEY = 'gl-checkout-contact'
 
 interface Form {
   customerName: string
@@ -27,15 +27,17 @@ interface Form {
   deliveryMethod: DeliveryMethod
   paymentMethod: PaymentMethod
   website: string
+  consent: boolean
+}
+
+function newIdempotencyKey() {
+  return typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`
 }
 
 function initialForm(user: ReturnType<typeof useAuthStore.getState>['user'], defaultCity?: string): Form {
-  let saved: Partial<Form> = {}
-  try {
-    saved = JSON.parse(localStorage.getItem(CONTACT_KEY) ?? '{}')
-  } catch {
-    saved = {}
-  }
+  const saved = user ? {} : loadGuestContact()
   return {
     customerName: saved.customerName || user?.fullName || '',
     phone: saved.phone || (user?.phone ? formatPhone(user.phone) : ''),
@@ -46,10 +48,29 @@ function initialForm(user: ReturnType<typeof useAuthStore.getState>['user'], def
     deliveryMethod: saved.deliveryMethod ?? 'PICKUP',
     paymentMethod: saved.paymentMethod ?? 'KASPI',
     website: '',
+    consent: false,
   }
 }
 
+/** On a phone the invalid field is usually off-screen: bring it into view and put the cursor there. */
+function focusFirstError() {
+  window.setTimeout(() => {
+    const field = document.querySelector<HTMLElement>('.checkout-layout .invalid input, .checkout-layout input.invalid, .checkout-layout .invalid')
+    if (!field) return
+    field.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    field.focus({ preventScroll: true })
+  }, 0)
+}
+
 export default function CheckoutPage() {
+  const authStatus = useAuthStore((s) => s.status)
+  const userId = useAuthStore((s) => s.user?.id ?? null)
+  if (authStatus === 'loading') return <PageLoader />
+  // Remount per account so one person's details never carry over to the next after a sign-out.
+  return <CheckoutForm key={userId ?? 'guest'} />
+}
+
+function CheckoutForm() {
   const { t, pick } = useT()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -79,7 +100,34 @@ export default function CheckoutPage() {
     if (settings?.city) setForm((f) => (f.city ? f : { ...f, city: settings.city }))
   }, [settings?.city])
 
+  // Signed-in shoppers get the details of their previous order from the server — nothing is kept in the browser.
+  const touched = useRef(false)
+  const lastOrder = useQuery({
+    queryKey: ['my-order', 'last-contact', user?.id],
+    queryFn: async () => {
+      const number = (await ordersApi.mine(0)).items[0]?.number
+      return number ? ordersApi.myOrder(number) : null
+    },
+    enabled: !!user,
+    staleTime: 0,
+  })
+  useEffect(() => {
+    const o = lastOrder.data
+    if (!o || touched.current) return
+    setForm((f) => ({
+      ...f,
+      customerName: o.customerName || f.customerName,
+      phone: o.phone ? formatPhone(o.phone) : f.phone,
+      email: o.email || f.email,
+      city: o.city || f.city,
+      address: o.address || f.address,
+      deliveryMethod: o.deliveryMethod,
+      paymentMethod: o.paymentMethod,
+    }))
+  }, [lastOrder.data])
+
   const set = <K extends keyof Form>(key: K, value: Form[K]) => {
+    touched.current = true
     setForm((f) => ({ ...f, [key]: value }))
     setErrors((e) => {
       if (!e[key]) return e
@@ -91,12 +139,22 @@ export default function CheckoutPage() {
 
   const validate = () => {
     const e: Record<string, string> = {}
-    if (form.customerName.trim().length < 2) e.customerName = 'Укажите имя'
-    if (!isValidPhone(form.phone)) e.phone = 'Введите номер полностью: +7 7XX XXX XX XX'
-    if (form.email && !/^\S+@\S+\.\S+$/.test(form.email)) e.email = 'Некорректный email'
-    if (form.deliveryMethod === 'DELIVERY' && form.address.trim().length < 5) e.address = 'Укажите адрес доставки'
+    if (form.customerName.trim().length < 2) e.customerName = t.errName
+    if (!isValidPhone(form.phone)) e.phone = t.errPhoneFull
+    if (form.email && !/^\S+@\S+\.\S+$/.test(form.email)) e.email = t.errEmail
+    if (form.deliveryMethod === 'DELIVERY' && form.city.trim().length < 2) e.city = t.errCity
+    if (form.deliveryMethod === 'DELIVERY' && form.address.trim().length < 5) e.address = t.errAddress
+    if (!form.consent) e.consent = t.errConsent
     setErrors(e)
+    if (Object.keys(e).length > 0) focusFirstError()
     return Object.keys(e).length === 0
+  }
+
+  // One key per distinct order: a retry after a timeout returns the order already placed instead of a second one.
+  const orderSignature = JSON.stringify([lines, form.deliveryMethod, quote.data?.total])
+  const idempotency = useRef({ signature: '', key: '' })
+  if (idempotency.current.signature !== orderSignature) {
+    idempotency.current = { signature: orderSignature, key: newIdempotencyKey() }
   }
 
   const checkout = useMutation({
@@ -111,17 +169,21 @@ export default function CheckoutPage() {
         deliveryMethod: form.deliveryMethod,
         paymentMethod: form.paymentMethod,
         items: lines,
-        expectedTotal: quote.data?.total,
+        expectedTotal: quote.data!.total,
         website: form.website || undefined,
+        consent: form.consent,
+        idempotencyKey: idempotency.current.key,
       }),
     onSuccess: (res) => {
       const { comment: _comment, website: _website, ...contact } = form
-      localStorage.setItem(CONTACT_KEY, JSON.stringify(contact))
-      sessionStorage.setItem(`gl-order-${res.order.number}`, JSON.stringify(res))
+      if (!user) saveGuestContact(contact)
+      saveOrderReceipt(res.order.number, res)
       clearCart()
       queryClient.invalidateQueries({ queryKey: ['search'] })
       queryClient.invalidateQueries({ queryKey: ['product'] })
-      navigate(`/order/${res.order.number}`, { replace: true, state: res })
+      queryClient.invalidateQueries({ queryKey: ['my-orders'] })
+      queryClient.invalidateQueries({ queryKey: ['my-order'] })
+      navigate(`/order/${res.order.number}`, { replace: true })
     },
     onError: async (error) => {
       const problem = problemOf(error)
@@ -130,12 +192,14 @@ export default function CheckoutPage() {
         if (fresh.data) replaceFromQuote(fresh.data)
         setBanner(
           problem.code === 'price_changed'
-            ? 'Цены обновились, пока вы оформляли заказ. Проверьте новую сумму и подтвердите ещё раз.'
-            : `${problem.detail}${problem.details?.length ? ': ' + problem.details.join('; ') : ''}. Корзина обновлена — проверьте и подтвердите ещё раз.`,
+            ? t.pricesChanged
+            : `${problem.detail}${problem.details?.length ? ': ' + problem.details.join('; ') : ''}. ${t.cartUpdatedConfirm}`,
         )
       } else if (problem.errors) {
         setErrors(problem.errors)
         setBanner(problem.detail)
+        focusFirstError()
+        return
       } else {
         setBanner(problem.detail)
       }
@@ -160,7 +224,17 @@ export default function CheckoutPage() {
     )
   }
 
-  if (!quote.data) return quote.isError ? <div className="notice error">Не удалось рассчитать заказ. Обновите страницу.</div> : <PageLoader />
+  if (!quote.data) {
+    if (!quote.isError) return <PageLoader />
+    return (
+      <div className="notice error row" style={{ justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+        <span>{t.quoteFailed} {problemOf(quote.error).detail}</span>
+        <button type="button" className="btn btn-ghost btn-sm" onClick={() => quote.refetch()} disabled={quote.isFetching}>
+          {quote.isFetching ? <Spinner /> : t.retry}
+        </button>
+      </div>
+    )
+  }
   const q = quote.data
 
   return (
@@ -175,7 +249,7 @@ export default function CheckoutPage() {
             <Link to="/login?next=/checkout" className="btn-link">
               {t.login}
             </Link>{' '}
-            — заказы сохранятся в кабинете, партнёры увидят свои цены.
+            — {t.loginBenefit}
           </p>
         )}
       </div>
@@ -198,22 +272,15 @@ export default function CheckoutPage() {
       >
         <div className="stack" style={{ gap: 18 }}>
           <section className="panel form-section">
-            <h3>Контакты</h3>
+            <h3>{t.contactsTitle}</h3>
             <div className="form-grid">
               <Field label={t.name} error={errors.customerName}>
                 <input className={clsx('input', errors.customerName && 'invalid')} value={form.customerName} onChange={(e) => set('customerName', e.target.value)} autoComplete="name" maxLength={150} />
               </Field>
               <Field label={t.phone} error={errors.phone}>
-                <input
-                  className={clsx('input', errors.phone && 'invalid')}
-                  value={form.phone}
-                  onChange={(e) => set('phone', e.target.value ? formatPhone(e.target.value) : '')}
-                  placeholder="+7 7__ ___ __ __"
-                  inputMode="tel"
-                  autoComplete="tel"
-                />
+                <PhoneInput className={clsx('input', errors.phone && 'invalid')} value={form.phone} onChange={(v) => set('phone', v)} />
               </Field>
-              <Field label={`${t.email} (необязательно)`} error={errors.email} className="full">
+              <Field label={`${t.email} (${t.optional})`} error={errors.email} className="full">
                 <input className={clsx('input', errors.email && 'invalid')} type="email" value={form.email} onChange={(e) => set('email', e.target.value)} autoComplete="email" />
               </Field>
             </div>
@@ -221,7 +288,7 @@ export default function CheckoutPage() {
           </section>
 
           <section className="panel form-section">
-            <h3>Получение</h3>
+            <h3>{t.receiving}</h3>
             <div className="choice-grid">
               {(
                 [
@@ -229,8 +296,9 @@ export default function CheckoutPage() {
                   [
                     'DELIVERY',
                     t.deliveryCourier,
-                    settings?.freeDeliveryThreshold
-                      ? `${money(settings.deliveryFee)}, бесплатно от ${money(settings.freeDeliveryThreshold)}`
+                    settings
+                      ? `${money(settings.deliveryFee)}` +
+                        (settings.freeDeliveryThreshold ? t.freeDeliveryFrom(money(settings.freeDeliveryThreshold), settings.freeDeliveryRetailOnly) : '')
                       : '',
                   ],
                 ] as [DeliveryMethod, string, string][]
@@ -242,13 +310,14 @@ export default function CheckoutPage() {
                 </label>
               ))}
             </div>
+            {form.deliveryMethod === 'DELIVERY' && <DeliveryNote variant="compact" />}
             {form.deliveryMethod === 'DELIVERY' && (
               <div className="form-grid">
                 <Field label={t.city} error={errors.city}>
-                  <input className="input" value={form.city} onChange={(e) => set('city', e.target.value)} autoComplete="address-level2" />
+                  <input className={clsx('input', errors.city && 'invalid')} value={form.city} onChange={(e) => set('city', e.target.value)} autoComplete="address-level2" />
                 </Field>
                 <Field label={t.address} error={errors.address}>
-                  <input className={clsx('input', errors.address && 'invalid')} value={form.address} onChange={(e) => set('address', e.target.value)} placeholder="Улица, дом, квартира" autoComplete="street-address" />
+                  <input className={clsx('input', errors.address && 'invalid')} value={form.address} onChange={(e) => set('address', e.target.value)} placeholder={t.addressPlaceholder} autoComplete="street-address" />
                 </Field>
               </div>
             )}
@@ -259,8 +328,8 @@ export default function CheckoutPage() {
             <div className="choice-grid">
               {(
                 [
-                  ['KASPI', t.payKaspi, 'Счёт или перевод Kaspi'],
-                  ['CARD_TRANSFER', t.payCard, 'Реквизиты пришлём в WhatsApp'],
+                  ['KASPI', t.payKaspi, t.kaspiHint],
+                  ['CARD_TRANSFER', t.payCard, t.cardHint],
                   ['CASH', t.payCash, ''],
                 ] as [PaymentMethod, string, string][]
               ).map(([value, label, hint]) => (
@@ -272,14 +341,14 @@ export default function CheckoutPage() {
               ))}
             </div>
             <Field label={t.comment}>
-              <textarea className="textarea" value={form.comment} onChange={(e) => set('comment', e.target.value)} maxLength={1000} placeholder="Удобное время звонка, пожелания…" />
+              <textarea className="textarea" value={form.comment} onChange={(e) => set('comment', e.target.value)} maxLength={1000} placeholder={t.commentPlaceholder} />
             </Field>
           </section>
         </div>
 
         <aside className="panel panel-pad checkout-summary">
           <div className="row" style={{ justifyContent: 'space-between', marginBottom: 14 }}>
-            <h3>Ваш заказ</h3>
+            <h3>{t.yourOrder}</h3>
             {quote.isFetching && <Spinner />}
           </div>
           {q.tier === 'PARTNER' && <div className="notice success" style={{ marginBottom: 12 }}>★ {t.partnerPricesApplied}</div>}
@@ -297,11 +366,21 @@ export default function CheckoutPage() {
           </div>
           {form.deliveryMethod === 'DELIVERY' && <DeliveryProgress quote={q} />}
           <QuoteSummary quote={q} />
+          <label className={clsx('consent', errors.consent && 'invalid')} style={{ marginTop: 16 }}>
+            <input type="checkbox" checked={form.consent} onChange={(e) => set('consent', e.target.checked)} />
+            <span>
+              {t.consentLabel}{' '}
+              <Link to="/privacy" target="_blank" className="btn-link">
+                {t.consentLink}
+              </Link>
+            </span>
+          </label>
+          {errors.consent && <small className="field-error">{errors.consent}</small>}
           <button type="submit" className="btn btn-gold btn-block btn-lg" style={{ marginTop: 18 }} disabled={checkout.isPending || quote.isPlaceholderData || q.items.length === 0}>
-            {checkout.isPending ? <Spinner /> : quote.isPlaceholderData ? 'Пересчитываем…' : `${t.placeOrder} · ${money(q.total)}`}
+            {checkout.isPending ? <Spinner /> : quote.isPlaceholderData ? t.recalculating : `${t.placeOrder} · ${money(q.total)}`}
           </button>
           <p className="muted small" style={{ marginTop: 10, textAlign: 'center' }}>
-            Оплата после подтверждения заказа менеджером
+            {t.payAfterConfirm}
           </p>
         </aside>
       </form>

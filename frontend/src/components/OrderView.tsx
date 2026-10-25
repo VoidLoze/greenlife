@@ -1,5 +1,6 @@
 import type { Order, OrderStatus } from '@/api/types'
 import { useT } from '@/i18n'
+import clsx from 'clsx'
 import { dateTime, money } from '@/lib/format'
 
 export const statusBadge: Record<OrderStatus, string> = {
@@ -16,8 +17,39 @@ export const paymentLabels: Record<string, string> = {
   CARD_TRANSFER: 'Перевод на карту',
 }
 
+/** Принят → Подтверждён → Передан в доставку → Выполнен; pickup orders skip the delivery step. */
+function StatusSteps({ order }: { order: Order }) {
+  const { t } = useT()
+  const reached = new Set<OrderStatus>(['NEW', ...order.history.map((h) => h.status), order.status])
+  const flow: OrderStatus[] =
+    order.deliveryMethod === 'DELIVERY' || reached.has('SHIPPED') ? ['NEW', 'CONFIRMED', 'SHIPPED', 'COMPLETED'] : ['NEW', 'CONFIRMED', 'COMPLETED']
+  const cancelled = order.status === 'CANCELLED'
+  const steps = cancelled ? [...flow.filter((s) => s !== 'COMPLETED' && reached.has(s)), 'CANCELLED' as const] : flow
+  const current = steps.indexOf(order.status)
+  const when = (status: OrderStatus) =>
+    status === 'NEW' ? order.createdAt : order.history.find((h) => h.status === status)?.createdAt
+
+  return (
+    <ol className={clsx('status-steps', cancelled && 'is-cancelled')}>
+      {steps.map((status, i) => {
+        const at = i <= current ? when(status) : undefined
+        return (
+          <li key={status} className={clsx(i < current && 'done', i === current && 'current', status === 'CANCELLED' && 'cancelled')}>
+            <span className="step-dot" aria-hidden="true">
+              {status === 'CANCELLED' ? '×' : i <= current ? '✓' : ''}
+            </span>
+            <span className="step-label">{status === 'NEW' ? t.orderReceived : t.orderStatus[status]}</span>
+            {at && <small>{dateTime(at)}</small>}
+          </li>
+        )
+      })}
+    </ol>
+  )
+}
+
 export function OrderDetails({ order }: { order: Order }) {
   const { t } = useT()
+  const payment: Record<string, string> = { CASH: t.payCash, KASPI: t.payKaspi, CARD_TRANSFER: t.payCard }
   return (
     <div className="stack" style={{ gap: 20 }}>
       <div className="row wrap" style={{ justifyContent: 'space-between' }}>
@@ -25,8 +57,10 @@ export function OrderDetails({ order }: { order: Order }) {
           <span className="muted small">{dateTime(order.createdAt)}</span>
           <h3>№ {order.number}</h3>
         </div>
-        <span className={`badge ${statusBadge[order.status]}`}>{order.statusLabel}</span>
+        <span className={`badge ${statusBadge[order.status]}`}>{t.orderStatus[order.status] ?? order.statusLabel}</span>
       </div>
+
+      <StatusSteps order={order} />
 
       <div className="order-items">
         {order.items.map((item, i) => (
@@ -68,17 +102,17 @@ export function OrderDetails({ order }: { order: Order }) {
 
       <div className="summary-rows small">
         <div>
-          <span className="muted">Получение</span>
+          <span className="muted">{t.receiving}</span>
           <span>{order.deliveryMethod === 'DELIVERY' ? [order.city, order.address].filter(Boolean).join(', ') || t.deliveryCourier : t.pickup}</span>
         </div>
         <div>
           <span className="muted">{t.payment}</span>
-          <span>{paymentLabels[order.paymentMethod] ?? order.paymentMethod}</span>
+          <span>{payment[order.paymentMethod] ?? order.paymentMethod}</span>
         </div>
         {order.priceTier === 'PARTNER' && (
           <div>
-            <span className="muted">Цены</span>
-            <span>Партнёрские</span>
+            <span className="muted">{t.prices}</span>
+            <span>{t.partnerPrices}</span>
           </div>
         )}
       </div>
@@ -86,12 +120,12 @@ export function OrderDetails({ order }: { order: Order }) {
       {order.history.length > 0 && (
         <div>
           <h4 className="eyebrow" style={{ marginBottom: 12 }}>
-            История
+            {t.history}
           </h4>
           <ol className="timeline">
             {order.history.map((h, i) => (
               <li key={i}>
-                <strong>{h.label}</strong>
+                <strong>{t.orderStatus[h.status] ?? h.label}</strong>
                 <small>{dateTime(h.createdAt)}</small>
                 {h.note && <div className="muted small">{h.note}</div>}
               </li>

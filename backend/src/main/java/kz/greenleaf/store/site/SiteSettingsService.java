@@ -68,8 +68,14 @@ public class SiteSettingsService {
         if (link != null && !link.matches("^https?://\\S+$")) {
             throw ApiException.badRequest("invalid_video_url", "Ссылка на видео должна начинаться с http:// или https://");
         }
-        dropUploadedFile();
-        put(VIDEO_URL, link);
+        // Saving only a new caption keeps the uploaded file; it is replaced only by an actual link
+        // (or removed with "вернуть видео по умолчанию").
+        if (link != null) {
+            dropUploadedFile();
+            put(VIDEO_URL, link);
+        } else if (load().get(VIDEO_FILE_KEY) == null) {
+            put(VIDEO_URL, null);
+        }
         put(VIDEO_TITLE, blankToNull(title));
     }
 

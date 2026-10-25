@@ -2,6 +2,7 @@
 .env
 backend/target
 backend/data
+backups
 
 # Logs
 logs

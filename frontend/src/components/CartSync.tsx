@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { cartApi } from '@/api/endpoints'
+import { migrateLegacyStorage } from '@/lib/session'
 import { useAuthStore } from '@/store/auth'
 import { mergeServerCart, useCartStore } from '@/store/cart'
 
@@ -10,6 +11,8 @@ import { mergeServerCart, useCartStore } from '@/store/cart'
 export function CartSync() {
   const userId = useAuthStore((s) => s.user?.id ?? null)
   const synced = useRef<number | null>(null)
+
+  useEffect(migrateLegacyStorage, [])
 
   useEffect(() => {
     if (userId == null) {
@@ -31,11 +34,13 @@ export function CartSync() {
   useEffect(() => {
     if (userId == null) return
     let timer: number | undefined
+    // The cart is emptied right at sign-out, before this effect is torn down — that must not reach the server.
+    const stillSignedIn = () => useAuthStore.getState().user?.id === userId
     const unsubscribe = useCartStore.subscribe((state, previous) => {
-      if (state.lines === previous.lines || synced.current !== userId) return
+      if (state.lines === previous.lines || synced.current !== userId || !stillSignedIn()) return
       window.clearTimeout(timer)
       timer = window.setTimeout(() => {
-        cartApi.replace(useCartStore.getState().lines).catch(() => undefined)
+        if (stillSignedIn()) cartApi.replace(useCartStore.getState().lines).catch(() => undefined)
       }, 600)
     })
     return () => {

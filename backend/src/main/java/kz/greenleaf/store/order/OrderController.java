@@ -4,6 +4,8 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import java.util.Map;
 import kz.greenleaf.store.auth.AuthPrincipal;
 import kz.greenleaf.store.common.ClientInfo;
@@ -60,9 +62,13 @@ public class OrderController {
         return Map.of("url", service.whatsappUrlFor(number, principal));
     }
 
-    @GetMapping("/track/{number}")
+    public record TrackRequest(@NotBlank @Size(max = 32) String number, @NotBlank @Size(max = 32) String phone) {
+    }
+
+    /** POST keeps the phone number out of URLs and access logs. */
+    @PostMapping("/track")
     @Operation(summary = "Отследить заказ по номеру и телефону")
-    public OrderDto track(@PathVariable String number, @RequestParam String phone, HttpServletRequest http) {
-        return service.track(number, phone, ClientInfo.from(http));
+    public OrderDto track(@Valid @RequestBody TrackRequest request, HttpServletRequest http) {
+        return service.track(request.number(), request.phone(), ClientInfo.from(http));
     }
 }

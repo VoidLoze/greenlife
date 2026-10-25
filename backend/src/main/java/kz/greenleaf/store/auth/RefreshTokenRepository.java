@@ -16,12 +16,19 @@ public interface RefreshTokenRepository extends JpaRepository<RefreshToken, Long
     @Query("select t from RefreshToken t join fetch t.user where t.tokenHash = :hash")
     Optional<RefreshToken> findByHashForUpdate(@Param("hash") String hash);
 
+    /** Clearing replacedByHash also ends the short rotation grace window of tokens rotated just before. */
     @Modifying
-    @Query("update RefreshToken t set t.revokedAt = :now where t.familyId = :familyId and t.revokedAt is null")
+    @Query("""
+            update RefreshToken t set t.revokedAt = coalesce(t.revokedAt, :now), t.replacedByHash = null
+             where t.familyId = :familyId and (t.revokedAt is null or t.replacedByHash is not null)
+            """)
     int revokeFamily(@Param("familyId") UUID familyId, @Param("now") Instant now);
 
     @Modifying
-    @Query("update RefreshToken t set t.revokedAt = :now where t.user.id = :userId and t.revokedAt is null")
+    @Query("""
+            update RefreshToken t set t.revokedAt = coalesce(t.revokedAt, :now), t.replacedByHash = null
+             where t.user.id = :userId and (t.revokedAt is null or t.replacedByHash is not null)
+            """)
     int revokeAllForUser(@Param("userId") Long userId, @Param("now") Instant now);
 
     @Modifying

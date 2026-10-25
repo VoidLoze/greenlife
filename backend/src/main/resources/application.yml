@@ -1,5 +1,6 @@
 server:
   port: 8080
+  # nginx overwrites X-Forwarded-For with the real client address (see frontend/nginx.conf), so it can be trusted.
   forward-headers-strategy: framework
   shutdown: graceful
   compression:
@@ -42,12 +43,16 @@ spring:
     multipart:
       max-file-size: 200MB
       max-request-size: 210MB
+      # Parts are parsed only when an upload endpoint asks for them, not for every anonymous POST.
+      resolve-lazily: true
   cache:
     type: redis
   jackson:
     deserialization:
       fail-on-null-for-primitives: false
       fail-on-unknown-properties: false
+      # "quantity": 1.7 is an error, not silently 1.
+      accept-float-as-int: false
 
 management:
   endpoints:
@@ -61,10 +66,10 @@ management:
 
 springdoc:
   swagger-ui:
-    enabled: ${API_DOCS_ENABLED:true}
+    enabled: ${API_DOCS_ENABLED:false}
     path: /swagger-ui
   api-docs:
-    enabled: ${API_DOCS_ENABLED:true}
+    enabled: ${API_DOCS_ENABLED:false}
     path: /v3/api-docs
 
 app:
@@ -84,17 +89,21 @@ app:
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:3000}
   jwt:
-    secret: ${JWT_SECRET:change-me-please-this-is-a-dev-only-secret-key-0123456789}
+    # No default: the app refuses to start without a real secret (see StartupSafetyCheck).
+    secret: ${JWT_SECRET:}
     issuer: greenleaf-store
     access-token-ttl: ${JWT_ACCESS_TTL:15m}
     refresh-token-ttl: ${JWT_REFRESH_TTL:30d}
     refresh-cookie-name: gl_refresh
-    refresh-cookie-secure: ${REFRESH_COOKIE_SECURE:false}
+    # Must stay true on a real domain with HTTPS; set REFRESH_COOKIE_SECURE=false only for local http://localhost.
+    refresh-cookie-secure: ${REFRESH_COOKIE_SECURE:true}
   security:
     login-max-attempts: 5
     login-lock-duration: 15m
     register-per-hour: 10
     orders-per-hour: 15
+    open-orders-per-phone: ${OPEN_ORDERS_PER_PHONE:3}
+    auto-cancel-new-after-hours: ${AUTO_CANCEL_NEW_AFTER_HOURS:0}
   storage:
     root: ${STORAGE_ROOT:./data/uploads}
     public-prefix: /uploads
@@ -102,7 +111,8 @@ app:
   pricing:
     partner-discount-percent: ${PARTNER_DISCOUNT_PERCENT:50}
     delivery-fee: ${DELIVERY_FEE:1500}
-    free-delivery-threshold: ${FREE_DELIVERY_THRESHOLD:25000}
+    free-delivery-threshold: ${FREE_DELIVERY_THRESHOLD:7000}
+    free-delivery-retail-only: ${FREE_DELIVERY_RETAIL_ONLY:true}
     max-quantity-per-item: 99
   cart:
     ttl: 30d
@@ -113,9 +123,13 @@ app:
     email: ${ADMIN_EMAIL:}
     password: ${ADMIN_PASSWORD:}
     full-name: ${ADMIN_NAME:Администратор}
+    sync-password: ${ADMIN_SYNC_PASSWORD:false}
   seed:
     enabled: ${SEED_ENABLED:true}
     dir: ${SEED_DIR:../seed}
+  alerts:
+    telegram-bot-token: ${TELEGRAM_BOT_TOKEN:}
+    telegram-chat-id: ${TELEGRAM_CHAT_ID:}
 
 logging:
   level:

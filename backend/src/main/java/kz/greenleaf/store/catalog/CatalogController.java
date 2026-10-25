@@ -13,6 +13,7 @@ import kz.greenleaf.store.catalog.dto.CatalogDtos.BrandDto;
 import kz.greenleaf.store.catalog.dto.CatalogDtos.CategoryDto;
 import kz.greenleaf.store.catalog.dto.CatalogDtos.FacetsDto;
 import kz.greenleaf.store.catalog.dto.CatalogDtos.HomeDto;
+import kz.greenleaf.store.catalog.dto.CatalogDtos.ProductCardDto;
 import kz.greenleaf.store.catalog.dto.CatalogDtos.ProductDetailDto;
 import kz.greenleaf.store.catalog.dto.CatalogDtos.ProductSearchResponse;
 import kz.greenleaf.store.catalog.dto.CatalogDtos.RelatedDto;
@@ -117,6 +118,12 @@ public class CatalogController {
             return new SuggestionsDto(List.of(), 0, List.of(), List.of(), List.of(), analytics.popular(null, 6), null);
         }
         return catalog.suggest(text.length() > 60 ? text.substring(0, 60) : text);
+    }
+
+    @GetMapping("/cards")
+    @Operation(summary = "Карточки опубликованных товаров по id в заданном порядке (избранное, недавно просмотренные)")
+    public List<ProductCardDto> cards(@RequestParam(defaultValue = "") List<Long> ids) {
+        return catalog.publishedCards(ids);
     }
 
     @GetMapping("/products/{slug}")

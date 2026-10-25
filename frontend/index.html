@@ -4,19 +4,37 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/png" href="/favicon.png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#085B39" />
-    <meta name="description" content="Greenleaf family — Born for Beauty. Средства для дома, ухода и здоровья в Алматы. Партнёрские цены, доставка и заказ в WhatsApp." />
+    <meta name="apple-mobile-web-app-title" content="Greenleaf" />
+    <meta name="mobile-web-app-capable" content="yes" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap"
       rel="stylesheet"
     />
+    <!--
+      In Docker nginx replaces the block below with tags for the opened page (title, description, canonical,
+      link preview, schema.org) from /api/seo/head; the block itself is the fallback and what the Vite dev server shows.
+    -->
+    <!--# block name="seo_head" -->
     <title>Greenleaf family — Born for Beauty</title>
+    <meta name="description" content="Greenleaf family — Born for Beauty. Средства для дома, ухода и здоровья в Алматы. Партнёрские цены, доставка и заказ в WhatsApp." />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Greenleaf" />
+    <meta property="og:title" content="Greenleaf family — Born for Beauty" />
+    <meta property="og:description" content="Средства для дома, ухода и здоровья в Алматы. Партнёрские цены, доставка и заказ в WhatsApp." />
+    <meta property="og:image" content="__PUBLIC_URL__/og-image.jpg" />
+    <meta property="og:locale" content="ru_KZ" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <!--# endblock -->
+    <!--# include virtual="/api/seo/head${request_uri}" stub="seo_head" -->
   </head>
   <body>
-    <div id="root"></div>
+    <!--# block name="seo_body" --><!--# endblock -->
+    <div id="root"><!--# include virtual="/api/seo/body${request_uri}" stub="seo_body" --></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

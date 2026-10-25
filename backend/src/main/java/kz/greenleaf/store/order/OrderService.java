@@ -1,14 +1,17 @@
 package kz.greenleaf.store.order;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.security.SecureRandom;
 import java.text.DecimalFormat;
 import java.text.DecimalFormatSymbols;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import kz.greenleaf.store.auth.AuthPrincipal;
@@ -34,6 +37,9 @@ import kz.greenleaf.store.order.OrderEnums.DeliveryMethod;
 import kz.greenleaf.store.order.OrderEnums.OrderStatus;
 import kz.greenleaf.store.order.OrderEnums.PaymentMethod;
 import kz.greenleaf.store.order.OrderEnums.PriceTier;
+import kz.greenleaf.store.site.StoreSettingsService;
+import kz.greenleaf.store.site.StoreSettingsService.StoreSettings;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -47,6 +53,9 @@ public class OrderService {
     private static final DateTimeFormatter NUMBER_DATE = DateTimeFormatter.ofPattern("yyMMdd");
     private static final Duration HOUR = Duration.ofHours(1);
     private static final int TRACK_PER_HOUR = 30;
+    private static final int TRACK_PER_NUMBER = 10;
+    private static final String NUMBER_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+    private static final int NUMBER_SUFFIX_LENGTH = 6;
 
     private final OrderRepository orders;
     private final ProductRepository products;
@@ -56,11 +65,15 @@ public class OrderService {
     private final RateLimiter rateLimiter;
     private final CatalogCacheEvictor cacheEvictor;
     private final AppProperties properties;
+    private final StoreSettingsService settings;
+    private final ApplicationEventPublisher events;
     private final Clock clock;
+    private final SecureRandom random = new SecureRandom();
 
     public OrderService(OrderRepository orders, ProductRepository products, PricingService pricing, CartService carts,
                         OrderMapper mapper, RateLimiter rateLimiter, CatalogCacheEvictor cacheEvictor,
-                        AppProperties properties, Clock clock) {
+                        AppProperties properties, StoreSettingsService settings, ApplicationEventPublisher events,
+                        Clock clock) {
         this.orders = orders;
         this.products = products;
         this.pricing = pricing;
@@ -69,17 +82,34 @@ public class OrderService {
         this.rateLimiter = rateLimiter;
         this.cacheEvictor = cacheEvictor;
         this.properties = properties;
+        this.settings = settings;
+        this.events = events;
         this.clock = clock;
     }
 
     @Transactional
     public CheckoutResponse checkout(CheckoutRequest request, AuthPrincipal principal, ClientInfo client) {
-        rateLimiter.acquireOrThrow("orders:ip:" + client.ip(), properties.security().ordersPerHour(), HOUR,
-                "Слишком много заказов с вашего устройства. Попробуйте позже или напишите нам в WhatsApp.");
         String phone = Phones.normalizeOrThrow(request.phone());
+        String idempotencyKey = blankToNull(request.idempotencyKey());
+        if (idempotencyKey != null) {
+            var placed = orders.findByIdempotencyKey(idempotencyKey).filter(o -> o.getPhone().equals(phone));
+            if (placed.isPresent()) {
+                return new CheckoutResponse(mapper.toDto(placed.get(), false), whatsappUrl(placed.get()));
+            }
+        }
+        if (!request.consent()) {
+            throw ApiException.badRequest("consent_required", "Подтвердите согласие на обработку персональных данных");
+        }
         if (request.deliveryMethod() == DeliveryMethod.DELIVERY
                 && (isBlank(request.city()) || isBlank(request.address()))) {
             throw ApiException.badRequest("address_required", "Для доставки укажите город и адрес");
+        }
+        rateLimiter.acquireOrThrow("orders:ip:" + client.ip(), properties.security().ordersPerHour(), HOUR,
+                "Слишком много заказов с вашего устройства. Попробуйте позже или напишите нам в WhatsApp.");
+        int openLimit = properties.security().openOrdersPerPhone();
+        if (orders.countOpenByPhoneSince(phone, clock.instant().minus(Duration.ofDays(3))) >= openLimit) {
+            throw ApiException.tooManyRequests("По этому номеру уже есть " + openLimit
+                    + " необработанных заказа. Менеджер скоро свяжется с вами — или напишите нам в WhatsApp.");
         }
 
         PriceTier tier = carts.tierFor(principal);
@@ -93,22 +123,23 @@ public class OrderService {
                     "Корзина изменилась — проверьте её перед оформлением",
                     quote.warnings().stream().map(CartWarning::message).toList());
         }
-        if (request.expectedTotal() != null && request.expectedTotal().compareTo(quote.total()) != 0) {
+        if (request.expectedTotal().compareTo(quote.total()) != 0) {
             throw ApiException.conflict("price_changed",
                     "Цены обновились. Новая сумма заказа: " + money(quote.total()) + " ₸. Проверьте корзину.");
         }
 
-        for (QuoteLine line : quote.items()) {
+        // Rows are locked in one global order (by id), so two carts with the same products cannot deadlock.
+        List<QuoteLine> byProduct = quote.items().stream().sorted(Comparator.comparing(QuoteLine::productId)).toList();
+        for (QuoteLine line : byProduct) {
             if (products.reserveStock(line.productId(), line.quantity()) == 0) {
                 throw ApiException.conflict("out_of_stock",
                         "«" + line.nameRu() + "» только что закончился. Обновите корзину.");
             }
         }
 
-        String number = "GL-" + NUMBER_DATE.format(clock.instant().atZone(STORE_ZONE)) + "-"
-                + String.format("%04d", orders.nextNumber());
-        Order order = new Order(number, principal == null ? null : principal.id(), request.customerName().trim(), phone,
-                request.deliveryMethod(), request.paymentMethod(), tier);
+        Order order = new Order(nextOrderNumber(), principal == null ? null : principal.id(), request.customerName().trim(),
+                phone, request.deliveryMethod(), request.paymentMethod(), tier);
+        order.setIdempotencyKey(idempotencyKey);
         order.setEmail(blankToNull(request.email()));
         order.setCity(blankToNull(request.city()));
         order.setAddress(request.deliveryMethod() == DeliveryMethod.DELIVERY ? blankToNull(request.address()) : null);
@@ -126,9 +157,40 @@ public class OrderService {
         if (principal != null) {
             afterCommit(() -> carts.clear(principal.id()));
         }
-        afterCommit(cacheEvictor::evictAll);
+        // The transaction-aware cache defers this clear until the commit itself.
+        cacheEvictor.evictAll();
+        events.publishEvent(placedEvent(order));
         OrderDto dto = mapper.toDto(order, false);
         return new CheckoutResponse(dto, whatsappUrl(order));
+    }
+
+    /** GL-<date>-<random>: unguessable, so a number cannot be enumerated to find someone's order. */
+    private String nextOrderNumber() {
+        String prefix = "GL-" + NUMBER_DATE.format(clock.instant().atZone(STORE_ZONE)) + "-";
+        for (int attempt = 0; ; attempt++) {
+            StringBuilder suffix = new StringBuilder(NUMBER_SUFFIX_LENGTH);
+            for (int i = 0; i < NUMBER_SUFFIX_LENGTH; i++) {
+                suffix.append(NUMBER_ALPHABET.charAt(random.nextInt(NUMBER_ALPHABET.length())));
+            }
+            String number = prefix + suffix;
+            if (attempt >= 5 || orders.findByNumber(number).isEmpty()) {
+                return number;
+            }
+        }
+    }
+
+    private OrderPlacedEvent placedEvent(Order order) {
+        StoreSettings s = settings.current();
+        List<String> lines = order.getItems().stream()
+                .map(i -> i.getProductName() + " × " + i.getQuantity() + " = " + money(i.getLineTotal()) + " ₸")
+                .toList();
+        String delivery = order.getDeliveryMethod() == DeliveryMethod.PICKUP
+                ? "Самовывоз (" + s.address() + ")"
+                : "Доставка: " + order.getCity() + ", " + order.getAddress()
+                        + (order.getDeliveryFee().signum() > 0 ? " (+" + money(order.getDeliveryFee()) + " ₸)" : " (бесплатно)");
+        return new OrderPlacedEvent(order.getId(), order.getNumber(), order.getCustomerName(), order.getPhone(), delivery,
+                paymentLabel(order.getPaymentMethod()), order.getPriceTier() == PriceTier.PARTNER, lines,
+                money(order.getTotal()), order.getComment());
     }
 
     @Transactional(readOnly = true)
@@ -150,10 +212,14 @@ public class OrderService {
     public OrderDto track(String number, String phone, ClientInfo client) {
         rateLimiter.acquireOrThrow("orders:track:" + client.ip(), TRACK_PER_HOUR, HOUR,
                 "Слишком много запросов. Попробуйте через час.");
+        String normalizedNumber = number == null ? "" : number.trim().toUpperCase(Locale.ROOT);
+        // Guessing phones for one known number is capped separately from the per-address limit.
+        rateLimiter.acquireOrThrow("orders:track-number:" + normalizedNumber, TRACK_PER_NUMBER, Duration.ofDays(1),
+                "Слишком много попыток для этого номера заказа. Напишите нам в WhatsApp.");
         String normalized = Phones.normalize(phone);
-        return orders.findByNumber(number == null ? "" : number.trim().toUpperCase(Locale.ROOT))
+        return orders.findByNumber(normalizedNumber)
                 .filter(o -> normalized != null && normalized.equals(o.getPhone()))
-                .map(o -> mapper.toDto(o, false))
+                .map(mapper::toTrackingDto)
                 .orElseThrow(() -> ApiException.notFound("Заказ с таким номером и телефоном"));
     }
 
@@ -165,8 +231,9 @@ public class OrderService {
 
     String whatsappUrl(Order order) {
         StringBuilder text = new StringBuilder();
+        StoreSettings store = settings.current();
         text.append("Здравствуйте! Оформил(а) заказ ").append(order.getNumber()).append(" на сайте ")
-                .append(properties.store().name()).append(".\n\n");
+                .append(store.storeName()).append(".\n\n");
         List<OrderItem> items = order.getItems();
         for (int i = 0; i < items.size(); i++) {
             OrderItem item = items.get(i);
@@ -184,13 +251,13 @@ public class OrderService {
         text.append("\n\nИмя: ").append(order.getCustomerName());
         text.append("\nТелефон: ").append(order.getPhone());
         text.append("\nПолучение: ").append(order.getDeliveryMethod() == DeliveryMethod.PICKUP
-                ? "самовывоз (" + properties.store().address() + ")"
+                ? "самовывоз (" + store.address() + ")"
                 : "доставка — " + order.getCity() + ", " + order.getAddress());
         text.append("\nОплата: ").append(paymentLabel(order.getPaymentMethod()));
         if (order.getComment() != null) {
             text.append("\nКомментарий: ").append(order.getComment());
         }
-        return "https://wa.me/" + properties.store().whatsapp() + "?text="
+        return "https://wa.me/" + store.whatsapp() + "?text="
                 + URLEncoder.encode(text.toString(), StandardCharsets.UTF_8).replace("+", "%20");
     }
 
@@ -205,7 +272,9 @@ public class OrderService {
     static String money(BigDecimal value) {
         DecimalFormatSymbols symbols = new DecimalFormatSymbols(Locale.ROOT);
         symbols.setGroupingSeparator(' ');
-        return new DecimalFormat("#,##0", symbols).format(value);
+        DecimalFormat format = new DecimalFormat("#,##0", symbols);
+        format.setRoundingMode(RoundingMode.HALF_UP);
+        return format.format(value);
     }
 
     private static void afterCommit(Runnable action) {

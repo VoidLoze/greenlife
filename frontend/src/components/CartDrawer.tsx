@@ -1,19 +1,20 @@
-import { useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
-import type { Quote } from '@/api/types'
+import type { Quote, CartWarning } from '@/api/types'
 import { useT } from '@/i18n'
 import { money } from '@/lib/format'
 import { useScrollLock } from '@/lib/hooks'
 import { useQuote } from '@/lib/useQuote'
 import { useCartStore } from '@/store/cart'
 import { BagIcon, CloseIcon } from './Icons'
-import { EmptyState, QuantityStepper, Spinner } from './ui'
+import { DeliveryNote } from './Promo'
+import { EmptyState, QuantityStepper, Spinner, useFocusTrap } from './ui'
 
-export function QuoteWarnings({ quote }: { quote: Quote }) {
-  if (!quote.warnings.length) return null
+export function QuoteWarnings({ quote, warnings = quote.warnings }: { quote: Quote; warnings?: CartWarning[] }) {
+  if (!warnings.length) return null
   return (
     <div className="stack" style={{ gap: 8, marginBottom: 12 }}>
-      {quote.warnings.map((w) => (
+      {warnings.map((w) => (
         <div key={`${w.productId}-${w.code}`} className="notice error">
           {w.message}
         </div>
@@ -79,19 +80,22 @@ export function CartDrawer() {
   const setQuantity = useCartStore((s) => s.setQuantity)
   const remove = useCartStore((s) => s.remove)
   const replaceFromQuote = useCartStore((s) => s.replaceFromQuote)
-  const { data: quote, isFetching, isError } = useQuote('PICKUP', open)
+  const { data: quote, isFetching, isError, refetch } = useQuote('PICKUP', open)
+  const drawer = useRef<HTMLElement>(null)
+  // The cart is corrected right away, which makes the next quote clean: keep the explanation until the drawer closes.
+  const [notices, setNotices] = useState<CartWarning[]>([])
 
   useScrollLock(open)
+  useFocusTrap(drawer, open, close)
 
   useEffect(() => {
-    if (!open) return
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && close()
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [open, close])
+    if (!open) setNotices([])
+  }, [open])
 
   useEffect(() => {
-    if (quote?.warnings.length) replaceFromQuote(quote)
+    if (!quote?.warnings.length) return
+    setNotices((prev) => [...prev.filter((p) => !quote.warnings.some((w) => w.productId === p.productId && w.code === p.code)), ...quote.warnings])
+    replaceFromQuote(quote)
   }, [quote, replaceFromQuote])
 
   if (!open) return null
@@ -100,7 +104,7 @@ export function CartDrawer() {
   return (
     <>
       <div className="overlay" onClick={close} />
-      <aside className="drawer" role="dialog" aria-modal="true" aria-label={t.cart}>
+      <aside ref={drawer} className="drawer" role="dialog" aria-modal="true" aria-label={t.cart} tabIndex={-1}>
         <div className="drawer-head">
           <div className="row">
             <h3>{t.cart}</h3>
@@ -123,7 +127,12 @@ export function CartDrawer() {
               }
             />
           ) : isError ? (
-            <div className="notice error">Не удалось пересчитать корзину. Попробуйте ещё раз.</div>
+            <div className="notice error row" style={{ justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+              <span>{t.cartQuoteFailed}</span>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => void refetch()} disabled={isFetching}>
+                {isFetching ? <Spinner /> : t.retry}
+              </button>
+            </div>
           ) : !quote ? (
             <div className="center-box">
               <Spinner />
@@ -131,7 +140,7 @@ export function CartDrawer() {
           ) : (
             <>
               {quote.tier === 'PARTNER' && <div className="notice success" style={{ marginBottom: 12 }}>★ {t.partnerPricesApplied}</div>}
-              <QuoteWarnings quote={quote} />
+              <QuoteWarnings quote={quote} warnings={notices} />
               {quote.items.map((item) => (
                 <div key={item.productId} className="cart-line">
                   <Link to={`/product/${item.slug}`} onClick={close}>
@@ -143,7 +152,7 @@ export function CartDrawer() {
                     </Link>
                     <div className="cart-line-meta">
                       {item.sku}
-                      {item.volume ? ` · ${item.volume}` : ''} · {money(item.unitPrice)} / шт.
+                      {item.volume ? ` · ${item.volume}` : ''} · {money(item.unitPrice)} / {t.pcs}
                     </div>
                     <div className="cart-line-bottom">
                       <QuantityStepper
@@ -162,6 +171,7 @@ export function CartDrawer() {
                   </div>
                 </div>
               ))}
+              <DeliveryNote variant="compact" />
             </>
           )}
         </div>
@@ -170,7 +180,7 @@ export function CartDrawer() {
             <DeliveryProgress quote={quote} />
             <QuoteSummary quote={quote} showDelivery={false} />
             <p className="muted small" style={{ marginTop: 8 }}>
-              Способ получения и доставку выберете при оформлении
+              {t.chooseDeliveryLater}
             </p>
             <button
               type="button"

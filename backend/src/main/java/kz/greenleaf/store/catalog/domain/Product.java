@@ -23,9 +23,16 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import kz.greenleaf.store.common.AuditedEntity;
+import org.hibernate.annotations.DynamicUpdate;
 
+/**
+ * Checkout changes stock and sales counters with direct UPDATEs that leave {@code version} alone, so a shopper's
+ * purchase never makes an open editor stale; {@link DynamicUpdate} keeps an editor save from writing those
+ * counters back.
+ */
 @Entity
 @Table(name = "products")
+@DynamicUpdate
 public class Product extends AuditedEntity {
 
     @Id

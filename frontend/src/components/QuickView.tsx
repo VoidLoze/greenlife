@@ -6,10 +6,11 @@ import type { ProductDetail } from '@/api/types'
 import { useT } from '@/i18n'
 import { useScrollLock } from '@/lib/hooks'
 import { QUICK_VIEW_PARAM, type QuickViewState } from '@/lib/quickView'
+import { useFavoritesStore } from '@/store/favorites'
 import { BuyBox } from './BuyBox'
 import { CloseIcon } from './Icons'
 import { MediaCarousel, productSlides } from './MediaCarousel'
-import { PageLoader } from './ui'
+import { PageLoader, useFocusTrap } from './ui'
 
 /** Product window opened from catalog cards (`?product=slug`). Mounted once in the store layout. */
 export function ProductQuickView() {
@@ -41,17 +42,13 @@ function QuickViewDialog({ slug, onClose }: { slug: string; onClose: () => void 
   const viewed = useRef(false)
   useScrollLock(true)
 
-  useEffect(() => {
-    dialog.current?.focus()
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  useFocusTrap(dialog, true, onClose)
 
   useEffect(() => {
     if (product.data && !viewed.current) {
       viewed.current = true
       void catalogApi.view(slug)
+      useFavoritesStore.getState().addViewed(product.data.card.id)
     }
   }, [product.data, slug])
 
@@ -68,8 +65,8 @@ function QuickViewDialog({ slug, onClose }: { slug: string; onClose: () => void 
           <QuickViewBody product={product.data} onClose={onClose} />
         ) : (
           <div className="center-box stack" style={{ textAlign: 'center' }}>
-            <h3>Не удалось открыть товар</h3>
-            <p className="muted">Возможно, он снят с продажи или ссылка устарела.</p>
+            <h3>{t.productOpenFailed}</h3>
+            <p className="muted">{t.productGoneHint}</p>
           </div>
         )}
       </div>

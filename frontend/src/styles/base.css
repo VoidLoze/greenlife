@@ -198,6 +198,7 @@ mark {
 .btn:active:not(:disabled) { transform: translateY(0) scale(0.98); }
 .btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .btn:disabled { opacity: 0.5; }
+.btn.is-disabled { opacity: 0.5; pointer-events: none; }
 
 .btn-primary {
   background: var(--brand-gradient);
@@ -434,6 +435,32 @@ mark {
 }
 
 .checkbox:hover { color: #fff; }
+
+.consent {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+  font-size: 0.86rem;
+  line-height: 1.45;
+  color: var(--muted);
+}
+.consent input { flex: none; margin-top: 2px; }
+.consent a { color: var(--gold); text-decoration: underline; text-underline-offset: 2px; }
+.consent.invalid input { border-color: var(--danger); }
+.field-error { display: block; margin-top: 6px; color: var(--danger); font-size: 0.78rem; font-weight: 600; }
+
+.link-btn {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--gold);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
 
 .choice-grid {
   display: grid;
@@ -887,3 +914,12 @@ mark {
     scroll-behavior: auto !important;
   }
 }
+
+/* Plain-HTML copy of the page from the server (index.html, SSI); visible only until the app starts. */
+.prerender { max-width: 1200px; margin: 0 auto; padding: 120px 20px 40px; line-height: 1.6; color: var(--ink); }
+.prerender h1 { font-size: clamp(1.6rem, 3vw, 2.4rem); margin: 12px 0; }
+.prerender h2 { font-size: 1.2rem; margin: 20px 0 8px; }
+.prerender a { color: var(--gold-soft); }
+.prerender nav { color: var(--muted-2); font-size: 0.9rem; }
+.prerender img { display: block; width: 240px; height: 240px; object-fit: contain; border-radius: 18px; background: var(--sage-light); }
+.prerender ul { padding-left: 20px; }

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
+import { useT } from '@/i18n'
 import { parseVideo } from '@/lib/video'
 import { PlayIcon } from './Icons'
 
@@ -22,6 +23,7 @@ export function VideoPlayer({
   showTitle?: boolean
   className?: string
 }) {
+  const { t } = useT()
   const source = useMemo(() => parseVideo(url), [url])
   const [startedUrl, setStartedUrl] = useState<string | null>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -49,7 +51,7 @@ export function VideoPlayer({
         <span className="video-play">
           <PlayIcon size={30} />
         </span>
-        <span className="video-facade-title">{title ?? 'Смотреть видео'} ↗</span>
+        <span className="video-facade-title">{title ?? t.watchVideo} ↗</span>
       </a>
     )
   }
@@ -70,7 +72,7 @@ export function VideoPlayer({
 
   const cover = poster ?? (source.type === 'youtube' ? source.poster : null)
   return (
-    <button type="button" className={clsx('video-frame video-facade', className)} onClick={() => setStartedUrl(url)} aria-label={title ? `Смотреть: ${title}` : 'Смотреть видео'}>
+    <button type="button" className={clsx('video-frame video-facade', className)} onClick={() => setStartedUrl(url)} aria-label={title ? `${t.watchVideo}: ${title}` : t.watchVideo}>
       {cover && <img src={cover} alt="" loading="lazy" />}
       <span className="video-play">
         <PlayIcon size={30} />

@@ -18,6 +18,7 @@ import kz.greenleaf.store.config.AppProperties;
 import kz.greenleaf.store.media.MediaUrls;
 import kz.greenleaf.store.order.OrderEnums.DeliveryMethod;
 import kz.greenleaf.store.order.OrderEnums.PriceTier;
+import kz.greenleaf.store.site.StoreSettingsService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,12 +31,12 @@ public class PricingService {
 
     private final ProductRepository products;
     private final MediaUrls urls;
-    private final AppProperties.Pricing pricing;
+    private final StoreSettingsService settings;
 
-    public PricingService(ProductRepository products, MediaUrls urls, AppProperties properties) {
+    public PricingService(ProductRepository products, MediaUrls urls, StoreSettingsService settings) {
         this.products = products;
         this.urls = urls;
-        this.pricing = properties.pricing();
+        this.settings = settings;
     }
 
     public record PricedCart(Quote quote, Map<Long, Product> products) {
@@ -48,6 +49,7 @@ public class PricingService {
 
     @Transactional(readOnly = true)
     public PricedCart price(List<CartLineInput> lines, PriceTier tier, DeliveryMethod deliveryMethod) {
+        AppProperties.Pricing pricing = settings.current().pricing();
         Map<Long, Integer> requested = merge(lines);
         Map<Long, Product> byId = requested.isEmpty() ? Map.of()
                 : products.findAllByIdIn(requested.keySet()).stream()
@@ -67,7 +69,7 @@ public class PricingService {
                 warnings.add(new CartWarning(entry.getKey(), "unavailable", name + " больше не продаётся и убран из корзины"));
                 continue;
             }
-            int max = maxQuantity(product);
+            int max = maxQuantity(product, pricing);
             if (max == 0) {
                 warnings.add(new CartWarning(product.getId(), "out_of_stock",
                         "«" + product.getNameRu() + "» закончился и убран из корзины"));
@@ -105,19 +107,33 @@ public class PricingService {
         }
 
         DeliveryMethod method = deliveryMethod == null ? DeliveryMethod.PICKUP : deliveryMethod;
-        BigDecimal threshold = pricing.freeDeliveryThreshold();
-        BigDecimal deliveryFee = BigDecimal.ZERO;
-        BigDecimal toFree = threshold.subtract(itemsTotal).max(BigDecimal.ZERO);
-        if (method == DeliveryMethod.DELIVERY && !items.isEmpty() && itemsTotal.compareTo(threshold) < 0) {
-            deliveryFee = pricing.deliveryFee();
-        }
+        Delivery delivery = delivery(pricing, tier, method, !items.isEmpty(), itemsTotal);
 
-        Quote quote = new Quote(tier, List.copyOf(items), count, itemsTotal, retailTotal, savings, method, deliveryFee,
-                threshold, toFree, itemsTotal.add(deliveryFee), "KZT", List.copyOf(warnings));
+        Quote quote = new Quote(tier, List.copyOf(items), count, itemsTotal, retailTotal, savings, method, delivery.fee(),
+                delivery.freeThreshold(), delivery.amountToFree(), itemsTotal.add(delivery.fee()), "KZT",
+                List.copyOf(warnings));
         return new PricedCart(quote, byId);
     }
 
-    private int maxQuantity(Product product) {
+    /** {@code freeThreshold} is null when this order cannot earn free delivery by its amount. */
+    public record Delivery(BigDecimal fee, BigDecimal freeThreshold, BigDecimal amountToFree) {
+    }
+
+    /**
+     * Free delivery to the door is earned by retail-price orders from the threshold. Partner orders (when
+     * {@code freeDeliveryRetailOnly}) get it only on the day the discount card is bought, which the manager applies.
+     */
+    public static Delivery delivery(AppProperties.Pricing pricing, PriceTier tier, DeliveryMethod method, boolean hasItems,
+            BigDecimal itemsTotal) {
+        boolean canEarnFree = tier != PriceTier.PARTNER || !pricing.freeDeliveryRetailOnly();
+        BigDecimal threshold = canEarnFree ? pricing.freeDeliveryThreshold() : null;
+        BigDecimal toFree = threshold == null ? BigDecimal.ZERO : threshold.subtract(itemsTotal).max(BigDecimal.ZERO);
+        boolean charged = method == DeliveryMethod.DELIVERY && hasItems
+                && (threshold == null || itemsTotal.compareTo(threshold) < 0);
+        return new Delivery(charged ? pricing.deliveryFee() : BigDecimal.ZERO, threshold, toFree);
+    }
+
+    private static int maxQuantity(Product product, AppProperties.Pricing pricing) {
         int cap = pricing.maxQuantityPerItem();
         Integer stock = product.getStockQuantity();
         return stock == null ? cap : Math.max(0, Math.min(cap, stock));

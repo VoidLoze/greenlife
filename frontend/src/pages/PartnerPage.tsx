@@ -1,5 +1,10 @@
+import { useState } from 'react'
 import { Link } from 'react-router'
-import { TelegramIcon, WhatsappIcon } from '@/components/Icons'
+import type { Media } from '@/api/types'
+import { CheckIcon, GiftIcon, PhoneIcon, TelegramIcon, WhatsappIcon } from '@/components/Icons'
+import { Lightbox } from '@/components/Lightbox'
+import { DeliveryNote } from '@/components/Promo'
+import { CARD_BENEFITS, CARD_GIFT_CALL, GIFT_SETS } from '@/content/promo'
 import { useT } from '@/i18n'
 import { whatsappLink } from '@/lib/format'
 import { useDocumentTitle, useSettings } from '@/lib/hooks'
@@ -78,6 +83,127 @@ function partnerIntro(lang: 'ru' | 'kk', discount: number | undefined) {
   ]
 }
 
+const benefitsPhone = CARD_BENEFITS.contactPhone.replace(/\D/g, '')
+
+function CardBenefits() {
+  const { t } = useT()
+  return (
+    <section className="card-benefits" aria-labelledby="card-benefits-title">
+      <div className="card-benefits-lead">
+        <h2 id="card-benefits-title">
+          {CARD_BENEFITS.lead[0]} <span>{CARD_BENEFITS.lead[1]}</span> {CARD_BENEFITS.lead[2]}
+        </h2>
+        <div className="card-benefits-contact">
+          <span>📩 {CARD_BENEFITS.contactLabel}</span>
+          <a className="card-benefits-phone" href={`tel:+${benefitsPhone}`}>
+            <PhoneIcon size={18} /> {CARD_BENEFITS.contactPhone}
+          </a>
+          <a
+            className="btn btn-whatsapp"
+            href={whatsappLink(benefitsPhone, 'Здравствуйте! Хочу узнать больше о дисконтной карте Greenleaf.')}
+            target="_blank"
+            rel="noreferrer"
+          >
+            <WhatsappIcon size={18} /> {t.writeWhatsapp}
+          </a>
+        </div>
+      </div>
+      <ul className="card-benefits-list">
+        {CARD_BENEFITS.items.map((item) => (
+          <li key={item.title}>
+            <span className="benefit-check">
+              <CheckIcon size={16} />
+            </span>
+            <span>
+              <strong>{item.title}</strong>
+              {item.text && <small>{item.text}</small>}
+            </span>
+          </li>
+        ))}
+      </ul>
+      <ul className="card-benefits-countries" aria-label="Страны-производители">
+        {CARD_BENEFITS.countries.map(([flag, country, goods]) => (
+          <li key={country}>
+            <span className="flag" aria-hidden="true">
+              {flag}
+            </span>
+            <span>
+              <strong>{country}</strong>
+              <small>{goods}</small>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+function GiftSets() {
+  const { t } = useT()
+  const [open, setOpen] = useState<number | null>(null)
+  const media: Media[] = GIFT_SETS.map((set, idx) => ({
+    id: idx,
+    kind: 'PHOTO',
+    url: set.image,
+    thumbUrl: null,
+    title: set.title,
+    description: null,
+    altText: set.title,
+    contentType: 'image/jpeg',
+    sizeBytes: 0,
+    width: null,
+    height: null,
+    originalFilename: null,
+    cover: false,
+    sortOrder: idx,
+  }))
+
+  return (
+    <section className="gift-section" id="gifts" aria-labelledby="gifts-title">
+      <div className="gift-section-head">
+        <span className="eyebrow">
+          <GiftIcon size={14} /> {CARD_GIFT_CALL}
+        </span>
+        <h2 id="gifts-title">Подарок от компании</h2>
+        <p className="muted">Полный ассортимент товара, равный стоимости дисконтной карты</p>
+      </div>
+      <div className="gift-grid">
+        {GIFT_SETS.map((set, idx) => (
+          <article key={set.id} className="gift-card">
+            <button type="button" className="gift-visual" onClick={() => setOpen(idx)} aria-label={`Увеличить фото: ${set.title}`}>
+              <img src={set.image} alt={set.title} loading="lazy" />
+              <span className="gift-number">{t.set} {idx + 1}</span>
+            </button>
+            <div className="gift-body">
+              <h3>{set.title}</h3>
+              {set.groups.map((group, g) => (
+                <div key={g} className="gift-group">
+                  {group.title && <p className="gift-group-title">{group.title}</p>}
+                  <ul className={group.title ? 'gift-list compact' : 'gift-list'}>
+                    {group.items.map((item) => (
+                      <li key={item.name}>
+                        <span className="gift-icon" aria-hidden="true">
+                          {item.icon}
+                        </span>
+                        <span>
+                          {item.name}
+                          {item.note && <small>{item.note}</small>}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+              {set.footer && <p className="gift-footer">{set.footer}</p>}
+            </div>
+          </article>
+        ))}
+      </div>
+      {open !== null && <Lightbox items={media} index={open} onIndex={setOpen} onClose={() => setOpen(null)} />}
+    </section>
+  )
+}
+
 export default function PartnerPage() {
   const { t, lang } = useT()
   const { data: settings } = useSettings()
@@ -96,6 +222,11 @@ export default function PartnerPage() {
       <div className="partner-hero">
         <span className="eyebrow">{t.partner}</span>
         <h1>{t.partnerTitle}</h1>
+      </div>
+
+      <CardBenefits />
+
+      <div className="partner-hero after">
         <div className="partner-intro">
           {partnerIntro(lang, settings?.partnerDiscountPercent)
             .filter((line): line is string => !!line)
@@ -103,7 +234,7 @@ export default function PartnerPage() {
               <p key={line}>{line}</p>
             ))}
         </div>
-        {user?.partner && <div className="notice success">★ Вы уже партнёр — партнёрские цены применяются автоматически.</div>}
+        {user?.partner && <div className="notice success">★ {t.alreadyPartner}</div>}
       </div>
 
       <div className="partner-grid">
@@ -132,11 +263,15 @@ export default function PartnerPage() {
         ))}
       </div>
 
+      <GiftSets />
+
+      <DeliveryNote />
+
       <div className="steps">
         {[
-          ['Выберите формат', 'Нажмите «Выбрать» — откроется WhatsApp с готовым сообщением.'],
-          ['Менеджер подтвердит', 'Мы ответим, расскажем детали и отметим ваш аккаунт как партнёрский.'],
-          ['Покупайте выгодно', 'После входа в аккаунт партнёрские цены применяются автоматически.'],
+          [t.step1Title, t.step1Text],
+          [t.step2Title, t.step2Text],
+          [t.step3Title, t.step3Text],
         ].map(([title, text], idx) => (
           <div key={title} className="panel step">
             <b>0{idx + 1}</b>
