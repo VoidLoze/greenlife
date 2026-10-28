@@ -15,7 +15,7 @@ public final class CatalogDtos {
 
     public record CategoryDto(Long id, String slug, String nameRu, String nameKk, String descriptionRu,
                               String descriptionKk, String icon, int sortOrder, long productCount,
-                              List<ProductTypeDto> types)
+                              List<ProductTypeDto> types, String imageUrl)
             implements Serializable {
     }
 

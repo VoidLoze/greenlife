@@ -3,7 +3,9 @@ import { Link, NavLink, Outlet, useLocation, useNavigationType } from 'react-rou
 import clsx from 'clsx'
 import { useLangStore, useT } from '@/i18n'
 import { formatPhone } from '@/lib/format'
-import { useSettings } from '@/lib/hooks'
+import { useIsPhone, useRevealOnScroll, useSettings } from '@/lib/hooks'
+import { MARQUEE_SENTENCES } from '@/content/promo'
+import { Marquee } from './Promo'
 import { useAuthStore, useIsAdmin } from '@/store/auth'
 import { useCartCount, useCartStore } from '@/store/cart'
 import { useFavoritesStore } from '@/store/favorites'
@@ -11,7 +13,7 @@ import { toast } from '@/store/toast'
 import { promptInstall, useInstallOption } from '@/lib/pwa'
 import { BrandLogo } from './Brand'
 import { CartDrawer } from './CartDrawer'
-import { BagIcon, DownloadIcon, GridIcon, HeartIcon, UserIcon } from './Icons'
+import { BagIcon, CardIcon, DownloadIcon, GridIcon, HeartIcon, HomeIcon, UserIcon } from './Icons'
 import { ProductQuickView } from './QuickView'
 import { SearchBox } from './SearchBox'
 
@@ -41,19 +43,45 @@ function CartButton() {
   )
 }
 
-/** On phones the header scrolls away, so a floating button keeps the cart within reach. */
-function MobileCartButton() {
+/**
+ * Phone navigation, app style: always at hand at the bottom of the screen, with the discount card in the middle.
+ * The product page swaps it for its own buy bar, and checkout needs the room for the order form.
+ */
+function MobileTabBar() {
   const { t } = useT()
   const count = useCartCount()
   const open = useCartStore((s) => s.openDrawer)
-  const drawerOpen = useCartStore((s) => s.drawerOpen)
+  const user = useAuthStore((s) => s.user)
   const { pathname } = useLocation()
-  if (count === 0 || drawerOpen || pathname.startsWith('/checkout')) return null
+  if (pathname.startsWith('/checkout') || pathname.startsWith('/product/')) return null
   return (
-    <button type="button" className="mobile-cart-btn" onClick={open} aria-label={`${t.cart}: ${count}`}>
-      <BagIcon size={22} />
-      <span className="cart-count">{count}</span>
-    </button>
+    <nav className="tab-bar" aria-label={t.home}>
+      <NavLink to="/" end>
+        <HomeIcon size={22} />
+        <span>{t.home}</span>
+      </NavLink>
+      <NavLink to="/catalog">
+        <GridIcon size={22} />
+        <span>{t.catalog}</span>
+      </NavLink>
+      <NavLink to="/partner" className="tab-card">
+        <span className="tab-card-icon">
+          <CardIcon size={24} />
+        </span>
+        <span>{t.tabCard}</span>
+      </NavLink>
+      <button type="button" className="tab-cart" onClick={open} aria-label={count ? `${t.cart}: ${count}` : t.cart}>
+        <span className="tab-icon">
+          <BagIcon size={22} />
+          {count > 0 && <span className="cart-count">{count}</span>}
+        </span>
+        <span>{t.cart}</span>
+      </button>
+      <NavLink to={user ? '/account' : '/login'}>
+        <UserIcon size={22} />
+        <span>{user ? t.profile : t.login}</span>
+      </NavLink>
+    </nav>
   )
 }
 
@@ -89,6 +117,8 @@ function Header() {
   const setLang = useLangStore((s) => s.setLang)
   const user = useAuthStore((s) => s.user)
   const isAdmin = useIsAdmin()
+  const phone = useIsPhone()
+  const { pathname } = useLocation()
 
   return (
     <header className="site-header container">
@@ -96,6 +126,7 @@ function Header() {
         <Link to="/" className="brand" aria-label="Greenleaf family">
           <BrandLogo />
         </Link>
+        {phone && pathname === '/' && <Marquee sentences={MARQUEE_SENTENCES} to="/partner" className="header-marquee" />}
         <nav className="main-nav">
           <NavLink to="/catalog">{t.catalog}</NavLink>
           <NavLink to="/partner">{t.partner}</NavLink>
@@ -117,7 +148,7 @@ function Header() {
             </Link>
           )}
           <FavoritesLink />
-          <Link to={user ? '/account' : '/login'} className="btn btn-ghost btn-icon" aria-label={user ? t.account : t.login} title={user?.fullName ?? t.login}>
+          <Link to={user ? '/account' : '/login'} className="btn btn-ghost btn-icon account-link" aria-label={user ? t.account : t.login} title={user?.fullName ?? t.login}>
             <UserIcon size={18} />
           </Link>
           <CartButton />
@@ -239,6 +270,7 @@ function ScrollToTop() {
 }
 
 export function Layout() {
+  useRevealOnScroll()
   return (
     <>
       <ScrollToTop />
@@ -249,7 +281,7 @@ export function Layout() {
       <Footer />
       <ProductQuickView />
       <CartDrawer />
-      <MobileCartButton />
+      <MobileTabBar />
     </>
   )
 }

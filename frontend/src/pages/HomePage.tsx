@@ -9,9 +9,10 @@ import { RecentlyViewed } from '@/components/SavedProducts'
 import { CardGiftBanner, DeliveryNote, Marquee } from '@/components/Promo'
 import { MARQUEE_SENTENCES, PARTNERSHIP_FORMULA } from '@/content/promo'
 import { HomeReels } from '@/components/HomeReels'
+import { CardPromo, CategoryStories, MobileSection } from '@/components/MobileHome'
 import { useT } from '@/i18n'
 import { categoryIcon } from '@/lib/categoryIcon'
-import { useSettings } from '@/lib/hooks'
+import { useIsPhone, useSettings } from '@/lib/hooks'
 
 function Section({ eyebrow, title, link, products }: { eyebrow: string; title: string; link: string; products: ProductCard[] }) {
   const { t } = useT()
@@ -36,11 +37,39 @@ export default function HomePage() {
   const { t, pick } = useT()
   const { data, isLoading } = useQuery({ queryKey: ['home'], queryFn: catalogApi.home })
   const { data: settings } = useSettings()
+  const phone = useIsPhone()
   useEffect(() => {
     document.title = 'Greenleaf family — Born for Beauty'
   }, [])
 
   const discount = settings?.partnerDiscountPercent || 50
+
+  if (phone) {
+    return (
+      <div className="m-home">
+        {data && <CategoryStories categories={data.categories} />}
+        <HomeReels
+          overlay={
+            <>
+              <h1 className="m-hero-title">{t.heroTitle}</h1>
+              <Link to="/partner" className="m-hero-lead">
+                {t.heroText}
+              </Link>
+            </>
+          }
+        />
+        <CardPromo />
+        {isLoading && <ProductGrid loading skeletons={2} />}
+        {data && <MobileSection title={t.bestsellers} link="/catalog?sort=popular" products={data.bestsellers} />}
+        <CardGiftBanner className="wide" />
+        {data && <MobileSection title={t.featured} link="/catalog?featured=true" products={data.featured} />}
+        <DeliveryNote />
+        {data && <MobileSection title={t.newest} link="/catalog?sort=newest" products={data.newest} />}
+        <GiftPick />
+        <RecentlyViewed />
+      </div>
+    )
+  }
 
   return (
     <>

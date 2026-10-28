@@ -32,6 +32,10 @@ public class ProductMapper {
         this.settings = settings;
     }
 
+    public String mediaUrl(String storageKey) {
+        return urls.url(storageKey);
+    }
+
     public ProductCardDto toCard(Product p) {
         Integer stock = p.getStockQuantity();
         return new ProductCardDto(

@@ -2,6 +2,7 @@ package kz.greenleaf.store.media;
 
 import java.util.List;
 import kz.greenleaf.store.catalog.CatalogCacheEvictor;
+import kz.greenleaf.store.catalog.domain.MediaKind;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -10,8 +11,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
 /**
- * Gives pictures uploaded before WebP thumbnails existed a WebP catalog copy, once, in the background after start.
- * Rows that already have one are skipped, so a restart simply continues where it stopped.
+ * Renews display copies made by older versions, once, in the background after start: pictures without a WebP copy,
+ * and product photos whose copy still has the empty background around the product.
+ * Rows that are already up to date are skipped, so a restart simply continues where it stopped.
  */
 @Component
 class WebpThumbnailBackfill {
@@ -31,7 +33,7 @@ class WebpThumbnailBackfill {
         this.cacheEvictor = cacheEvictor;
     }
 
-    private record Row(long id, String storageKey, String thumbnailKey) {
+    private record Row(long id, MediaKind kind, String storageKey, String thumbnailKey) {
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -43,24 +45,28 @@ class WebpThumbnailBackfill {
     }
 
     void run() {
+        String trimmed = "%" + MediaProcessor.THUMB_SUFFIX.replace("_", "\\_") + "webp";
         List<Row> rows = jdbc.query("""
-                        select id, storage_key, thumbnail_key from product_media
+                        select id, kind, storage_key, thumbnail_key from product_media
                         where content_type in ('image/jpeg', 'image/png', 'image/gif')
-                          and (thumbnail_key is null or thumbnail_key not like '%.webp')
+                          and (thumbnail_key is null or thumbnail_key not like '%.webp'
+                               or (kind = 'PHOTO' and thumbnail_key not like ?))
                         order by id
                         """,
-                (rs, i) -> new Row(rs.getLong(1), rs.getString(2), rs.getString(3)));
+                (rs, i) -> new Row(rs.getLong(1), MediaKind.valueOf(rs.getString(2)), rs.getString(3), rs.getString(4)),
+                trimmed);
         if (rows.isEmpty()) {
             return;
         }
-        log.info("Creating WebP thumbnails for {} pictures", rows.size());
+        log.info("Renewing display copies for {} pictures", rows.size());
         int done = 0;
         for (Row row : rows) {
             try {
                 if (!storage.exists(row.storageKey())) {
                     continue;
                 }
-                String key = processor.webpThumbnail(row.storageKey(), storage.read(row.storageKey())).orElse(null);
+                String key = processor.webpThumbnail(row.storageKey(), storage.read(row.storageKey()), row.kind())
+                        .orElse(null);
                 if (key == null) {
                     continue;
                 }
@@ -73,7 +79,7 @@ class WebpThumbnailBackfill {
             }
         }
         cacheEvictor.evictAll();
-        log.info("WebP thumbnails created: {} of {}", done, rows.size());
+        log.info("Display copies renewed: {} of {}", done, rows.size());
     }
 
     /** Old thumbnails stay while anything still points at them — order history keeps its picture keys. */

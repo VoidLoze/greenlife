@@ -2,14 +2,61 @@ import { useState } from 'react'
 import type { ProductDetail } from '@/api/types'
 import { useT } from '@/i18n'
 import { flyToCart } from '@/lib/flyToCart'
-import { whatsappLink } from '@/lib/format'
+import { money, whatsappLink } from '@/lib/format'
 import { useSettings } from '@/lib/hooks'
-import { useCartStore } from '@/store/cart'
+import { useIsPartner } from '@/lib/useQuote'
+import { useCartCount, useCartStore } from '@/store/cart'
 import { toast } from '@/store/toast'
-import { WhatsappIcon } from './Icons'
+import { BagIcon, WhatsappIcon } from './Icons'
 import { FavoriteButton, ShareButton } from './ProductActions'
 import { PricePair, StockLine } from './ProductCard'
 import { QuantityStepper } from './ui'
+
+/** Phone-only bar pinned to the bottom of the product page, so buying never needs a scroll back up. */
+export function MobileBuyBar({ product }: { product: ProductDetail }) {
+  const { t, pick } = useT()
+  const card = product.card
+  const { data: settings } = useSettings()
+  const count = useCartCount()
+  const isPartner = useIsPartner()
+  const inCart = useCartStore((s) => s.lines.find((l) => l.productId === card.id)?.quantity ?? 0)
+  const add = useCartStore((s) => s.add)
+  const setQuantity = useCartStore((s) => s.setQuantity)
+  const openDrawer = useCartStore((s) => s.openDrawer)
+  const max = Math.min(settings?.maxQuantityPerItem ?? 99, product.stockQuantity ?? 99)
+  const canBuy = card.inStock && card.price != null
+
+  return (
+    <div className="m-buy-bar">
+      <button type="button" className="m-buy-cart" onClick={openDrawer} aria-label={count ? `${t.cart}: ${count}` : t.cart}>
+        <BagIcon size={22} />
+        {count > 0 && <span className="cart-count">{count}</span>}
+      </button>
+      {inCart > 0 ? (
+        <>
+          <QuantityStepper value={inCart} max={max} onChange={(q) => setQuantity(card.id, q)} />
+          <button type="button" className="btn btn-gold m-buy-main" onClick={openDrawer}>
+            {t.checkout}
+          </button>
+        </>
+      ) : (
+        <button
+          type="button"
+          className="btn btn-primary m-buy-main"
+          disabled={!canBuy}
+          onClick={(e) => {
+            add(card.id, 1)
+            flyToCart(e.currentTarget)
+            toast.success(`«${pick(card.nameRu, card.nameKk)}» — ${t.inCart.toLowerCase()}`)
+          }}
+        >
+          {card.inStock ? t.addToCart : t.outOfStock}
+          {canBuy && <span className="m-buy-price">{money(isPartner && card.partnerPrice != null ? card.partnerPrice : card.price)}</span>}
+        </button>
+      )}
+    </div>
+  )
+}
 
 export function BuyBox({ product, onCheckout }: { product: ProductDetail; onCheckout?: () => void }) {
   const { t, pick } = useT()

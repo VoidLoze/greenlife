@@ -20,9 +20,9 @@ export function flyToCart(from: Element) {
   navigator.vibrate?.(15)
   if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
   const img = sourceImage(from)
-  // The floating mobile cart button only appears after the first item lands, so wait for that render.
+  // The cart badge only appears after the first item lands, so wait for that render.
   requestAnimationFrame(() => {
-    const target = [document.querySelector('.mobile-cart-btn'), document.querySelector('.cart-btn')].find(visible)
+    const target = ['.tab-cart', '.m-buy-cart', '.cart-btn'].map((s) => document.querySelector(s)).find(visible)
     if (!img || !target || !visible(img)) return
     const a = img.getBoundingClientRect()
     const b = target.getBoundingClientRect()

@@ -42,6 +42,16 @@ public interface ProductRepository extends JpaRepository<Product, Long>, JpaSpec
             """)
     List<Object[]> countPublishedByCategory();
 
+    /** Per category, the picture of its best-selling published product — the category's face in the phone menu. */
+    @Query(value = """
+            select distinct on (p.category_id) p.category_id, coalesce(p.cover_thumb_key, p.cover_key)
+            from products p
+            where p.status = 'PUBLISHED' and p.price is not null and p.cover_key is not null
+              and p.category_id is not null
+            order by p.category_id, p.sold_count desc, p.view_count desc, p.id
+            """, nativeQuery = true)
+    List<Object[]> categoryCovers();
+
     @Query("""
             select p.brand.id, count(p) from Product p
             where p.status = kz.greenleaf.store.catalog.domain.ProductStatus.PUBLISHED and p.price is not null

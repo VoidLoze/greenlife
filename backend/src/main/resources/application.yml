@@ -107,7 +107,7 @@ app:
   storage:
     root: ${STORAGE_ROOT:./data/uploads}
     public-prefix: /uploads
-    thumbnail-width: 520
+    thumbnail-width: 800
   pricing:
     partner-discount-percent: ${PARTNER_DISCOUNT_PERCENT:50}
     delivery-fee: ${DELIVERY_FEE:1500}

@@ -72,6 +72,8 @@ export interface Category {
   sortOrder: number
   productCount: number
   types: ProductType[]
+  /** Picture of the category's best-selling product. */
+  imageUrl: string | null
 }
 
 /** Second catalog level inside a category (e.g. «Уход за волосами» → «Шампуни»). */

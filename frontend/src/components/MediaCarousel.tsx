@@ -125,7 +125,7 @@ export function MediaCarousel({
                 <VideoPlayer url={slide.url} title={slide.title} poster={slide.poster} active={i === current} />
               ) : (
                 <img
-                  src={slide.media.url}
+                  src={slide.screenshot ? slide.media.url : (slide.media.thumbUrl ?? slide.media.url)}
                   alt={slide.media.altText ?? slide.media.title ?? alt}
                   loading={Math.abs(i - current) <= 1 ? 'eager' : 'lazy'}
                   draggable={false}

@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import clsx from 'clsx'
 import { catalogApi, type CatalogFilters } from '@/api/endpoints'
 import type { Category, Facets, FacetValue, PriceBucket } from '@/api/types'
-import { ChevronDown, FilterIcon } from '@/components/Icons'
+import { ChevronDown, CloseIcon, FilterIcon } from '@/components/Icons'
 import { ProductGrid } from '@/components/ProductCard'
 import { CardGiftBanner } from '@/components/Promo'
 import { Select, type SelectOption } from '@/components/Select'
@@ -12,7 +12,7 @@ import { EmptyState, Pagination, Spinner } from '@/components/ui'
 import { useT } from '@/i18n'
 import { categoryIcon } from '@/lib/categoryIcon'
 import { money } from '@/lib/format'
-import { useDocumentTitle } from '@/lib/hooks'
+import { useDocumentTitle, useIsPhone, useScrollLock } from '@/lib/hooks'
 
 const PAGE_SIZE = 24
 const BRANDS_COLLAPSED = 8
@@ -223,9 +223,23 @@ export default function CatalogPage() {
   const [params, setParams] = useSearchParams()
   const filters = useMemo(() => readFilters(params), [params])
   const [filtersOpen, setFiltersOpen] = useState(false)
+  const phone = useIsPhone()
+  // On a phone the filters are a sheet over the page, so the page under it must not scroll away.
+  useScrollLock(phone && filtersOpen)
+  const strip = useRef<HTMLDivElement>(null)
 
   const { data: categories } = useQuery({ queryKey: ['categories'], queryFn: catalogApi.categories, staleTime: 5 * 60_000 })
   const { data: brands } = useQuery({ queryKey: ['brands'], queryFn: catalogApi.brands, staleTime: 5 * 60_000 })
+
+  // The chosen category may sit far along the strip; bring it into view instead of leaving it off screen.
+  const selectedCategories = filters.category.join(',')
+  useEffect(() => {
+    const row = strip.current
+    const chip = row?.querySelector<HTMLElement>('.chip.active')
+    if (!row || !chip) return
+    const offset = chip.getBoundingClientRect().left - row.getBoundingClientRect().left
+    row.scrollTo({ left: row.scrollLeft + offset - 20, behavior: 'smooth' })
+  }, [selectedCategories, categories])
 
   const apiFilters: CatalogFilters = { ...filters, page: filters.page - 1, size: PAGE_SIZE }
   const results = useQuery({
@@ -382,7 +396,7 @@ export default function CatalogPage() {
       </div>
 
       {categories && (
-        <div className="category-strip" role="toolbar" aria-label={t.categories}>
+        <div ref={strip} className="category-strip" role="toolbar" aria-label={t.categories}>
           <button
             type="button"
             className={clsx('chip', !filters.category.length && 'active')}
@@ -457,7 +471,14 @@ export default function CatalogPage() {
       )}
 
       <div className="catalog-layout">
+        {filtersOpen && <div className="filters-backdrop" onClick={() => setFiltersOpen(false)} aria-hidden="true" />}
         <aside className={clsx('panel filters', filtersOpen && 'open')} aria-label={t.filters}>
+          <div className="filters-sheet-head">
+            <h3>{t.filters}</h3>
+            <button type="button" className="close-btn" onClick={() => setFiltersOpen(false)} aria-label="Закрыть">
+              <CloseIcon size={18} />
+            </button>
+          </div>
           {categories && (
             <CategoryTree
               categories={categories}

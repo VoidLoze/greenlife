@@ -90,10 +90,14 @@ public class CatalogService {
                         t -> new ProductTypeDto(t.getSlug(), t.getNameRu(), t.getNameKk(),
                                 typeCounts.getOrDefault(t.getId(), 0L)),
                         Collectors.toList())));
+        Map<Long, String> covers = new HashMap<>();
+        for (Object[] row : products.categoryCovers()) {
+            covers.put(((Number) row[0]).longValue(), mapper.mediaUrl((String) row[1]));
+        }
         return categories.findAllOrdered().stream()
                 .map(c -> new CategoryDto(c.getId(), c.getSlug(), c.getNameRu(), c.getNameKk(), c.getDescriptionRu(),
                         c.getDescriptionKk(), c.getIcon(), c.getSortOrder(), counts.getOrDefault(c.getId(), 0L),
-                        List.copyOf(typesByCategory.getOrDefault(c.getId(), List.of()))))
+                        List.copyOf(typesByCategory.getOrDefault(c.getId(), List.of())), covers.get(c.getId())))
                 .toList();
     }
 

@@ -1,10 +1,11 @@
 import { memo, type MouseEvent } from 'react'
-import { Link } from 'react-router'
+import { Link, useNavigate } from 'react-router'
 import clsx from 'clsx'
 import type { ProductCard as Card } from '@/api/types'
 import { useT } from '@/i18n'
 import { discountPercent, money } from '@/lib/format'
 import { flyToCart } from '@/lib/flyToCart'
+import { isPhone } from '@/lib/hooks'
 import { isPlainClick, useOpenQuickView } from '@/lib/quickView'
 import { useIsPartner } from '@/lib/useQuote'
 import { useCartStore } from '@/store/cart'
@@ -71,15 +72,19 @@ function ProductCardComponent({ product }: { product: Card }) {
   const canBuy = product.inStock && product.price != null
   const openQuickView = useOpenQuickView()
 
+  const navigate = useNavigate()
+
+  // A phone has no room for a quick-view window, so the card opens the full product page instead.
   const onLinkClick = (e: MouseEvent) => {
-    if (!isPlainClick(e)) return
+    if (!isPlainClick(e) || isPhone()) return
     e.preventDefault()
     openQuickView(product.slug)
   }
   const onCardClick = (e: MouseEvent<HTMLElement>) => {
     if ((e.target as HTMLElement).closest('a, button, input, select, textarea, label')) return
     if (window.getSelection()?.toString()) return
-    openQuickView(product.slug)
+    if (isPhone()) navigate(href)
+    else openQuickView(product.slug)
   }
 
   return (

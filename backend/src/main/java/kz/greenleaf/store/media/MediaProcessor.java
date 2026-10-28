@@ -67,6 +67,11 @@ public class MediaProcessor {
     private static final Set<String> OFFICE_EXTENSIONS = Set.of("doc", "docx", "xls", "xlsx", "ppt", "pptx");
     /** Larger photos are scaled down on upload: shoppers' phones never need more, and pages load faster. */
     private static final int MAX_DISPLAY_SIDE = 2400;
+    /**
+     * Name tail of the display copy. Product photos get it with the empty background trimmed away;
+     * {@link WebpThumbnailBackfill} redoes any photo whose copy does not carry it yet.
+     */
+    static final String THUMB_SUFFIX = "_card.";
     /** Refuses "decompression bombs": a tiny file that claims to be a gigantic picture. */
     private static final long MAX_PIXELS = 60_000_000L;
 
@@ -118,8 +123,8 @@ public class MediaProcessor {
                 height = image.getHeight();
                 // With WebP even a small picture gets a lighter copy for the catalog grid.
                 if (THUMBNAILABLE.contains(contentType) && (width > thumbnailWidth || WebpEncoder.available())) {
-                    Thumbnail thumbnail = renderThumbnail(image);
-                    thumbnailKey = base + "_thumb." + thumbnail.extension();
+                    Thumbnail thumbnail = renderThumbnail(kind == MediaKind.PHOTO ? BackgroundTrim.trim(image) : image);
+                    thumbnailKey = base + THUMB_SUFFIX + thumbnail.extension();
                     storage.write(thumbnailKey, thumbnail.bytes());
                 }
             }
@@ -262,10 +267,10 @@ public class MediaProcessor {
     }
 
     /**
-     * A WebP catalog copy of an already stored picture (pictures uploaded before WebP thumbnails existed);
+     * A fresh WebP display copy of an already stored picture (pictures uploaded before WebP or trimming existed);
      * empty when the encoder is unavailable or the bytes are not a readable image.
      */
-    public Optional<String> webpThumbnail(String storageKey, byte[] content) throws IOException {
+    public Optional<String> webpThumbnail(String storageKey, byte[] content, MediaKind kind) throws IOException {
         if (!WebpEncoder.available()) {
             return Optional.empty();
         }
@@ -273,12 +278,12 @@ public class MediaProcessor {
         if (image == null) {
             return Optional.empty();
         }
-        Thumbnail thumbnail = renderThumbnail(image);
+        Thumbnail thumbnail = renderThumbnail(kind == MediaKind.PHOTO ? BackgroundTrim.trim(image) : image);
         if (!"webp".equals(thumbnail.extension())) {
             return Optional.empty();
         }
         int dot = storageKey.lastIndexOf('.');
-        String key = (dot > storageKey.lastIndexOf('/') ? storageKey.substring(0, dot) : storageKey) + "_thumb.webp";
+        String key = (dot > storageKey.lastIndexOf('/') ? storageKey.substring(0, dot) : storageKey) + THUMB_SUFFIX + "webp";
         storage.write(key, thumbnail.bytes());
         return Optional.of(key);
     }

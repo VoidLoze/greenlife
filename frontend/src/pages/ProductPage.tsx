@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useParams } from 'react-router'
+import { Link, useNavigate, useParams } from 'react-router'
 import { useQuery } from '@tanstack/react-query'
 import clsx from 'clsx'
 import axios from 'axios'
 import { catalogApi } from '@/api/endpoints'
 import type { Media, ProductDetail } from '@/api/types'
-import { BuyBox } from '@/components/BuyBox'
+import { BuyBox, MobileBuyBar } from '@/components/BuyBox'
+import { ChevronLeft } from '@/components/Icons'
 import { Lightbox } from '@/components/Lightbox'
 import { MediaCarousel, productSlides, screenshotSlides, type Slide } from '@/components/MediaCarousel'
 import { ProductRail } from '@/components/ProductCard'
@@ -13,7 +14,7 @@ import { RecentlyViewed } from '@/components/SavedProducts'
 import { EmptyState, PageLoader } from '@/components/ui'
 import { useT } from '@/i18n'
 import { fileSize } from '@/lib/format'
-import { useDocumentTitle, useMetaDescription, useNoIndex } from '@/lib/hooks'
+import { useDocumentTitle, useIsPhone, useMetaDescription, useNoIndex } from '@/lib/hooks'
 import { useFavoritesStore } from '@/store/favorites'
 
 function extensionOf(media: Media) {
@@ -100,6 +101,8 @@ export default function ProductPage() {
   const product = useQuery({ queryKey: ['product', slug], queryFn: () => catalogApi.product(slug), enabled: !!slug })
   const related = useQuery({ queryKey: ['related', slug], queryFn: () => catalogApi.related(slug), enabled: !!product.data })
   const viewed = useRef<string | null>(null)
+  const phone = useIsPhone()
+  const navigate = useNavigate()
 
   useDocumentTitle(product.data ? pick(product.data.card.nameRu, product.data.card.nameKk) : undefined)
   useMetaDescription(product.data ? pick(product.data.card.summaryRu, product.data.card.summaryKk) : null)
@@ -159,6 +162,16 @@ export default function ProductPage() {
       </nav>
 
       <div className="product-layout">
+        {phone && (
+          <button
+            type="button"
+            className="m-back"
+            aria-label={t.back}
+            onClick={() => (window.history.state?.idx > 0 ? navigate(-1) : navigate('/catalog'))}
+          >
+            <ChevronLeft size={22} />
+          </button>
+        )}
         <Gallery key={card.id} product={p} />
         <div className="product-info">
           <div className="row wrap">
@@ -253,6 +266,7 @@ export default function ProductPage() {
         </section>
       )}
       <RecentlyViewed excludeId={card.id} />
+      {phone && <MobileBuyBar key={card.id} product={p} />}
     </>
   )
 }
