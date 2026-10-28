@@ -12,6 +12,7 @@ import kz.greenleaf.store.auth.AuthPrincipal;
 import kz.greenleaf.store.catalog.dto.CatalogDtos.BrandDto;
 import kz.greenleaf.store.catalog.dto.CatalogDtos.CategoryDto;
 import kz.greenleaf.store.catalog.dto.CatalogDtos.FacetsDto;
+import kz.greenleaf.store.catalog.dto.CatalogDtos.GiftPickDto;
 import kz.greenleaf.store.catalog.dto.CatalogDtos.HomeDto;
 import kz.greenleaf.store.catalog.dto.CatalogDtos.ProductCardDto;
 import kz.greenleaf.store.catalog.dto.CatalogDtos.ProductDetailDto;
@@ -53,6 +54,14 @@ public class CatalogController {
     @Operation(summary = "Данные главной страницы: хиты, новинки, категории")
     public ResponseEntity<HomeDto> home() {
         return ResponseEntity.ok().cacheControl(SHORT_CACHE).body(catalog.home());
+    }
+
+    @GetMapping("/gift-pick")
+    @Operation(summary = "Товар для блока «Сделай подарок» на главной",
+            description = "Вошедшему покупателю — по его покупкам, иначе случайный товар из парфюмерии, косметики и ароматов")
+    public ResponseEntity<GiftPickDto> giftPick(@AuthenticationPrincipal AuthPrincipal principal) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                .body(catalog.giftPick(principal == null ? null : principal.id()));
     }
 
     @GetMapping("/categories")

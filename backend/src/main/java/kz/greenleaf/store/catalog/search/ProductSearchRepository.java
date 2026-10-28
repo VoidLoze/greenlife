@@ -171,6 +171,63 @@ public class ProductSearchRepository {
                 Long.class);
     }
 
+    /**
+     * What a shopper may like next, from their own non-cancelled orders: products other customers bought together
+     * with theirs weigh most, then the same type, then the same category. Already bought products are left out.
+     */
+    public List<Long> recommendedFor(Long userId, int limit) {
+        String sql = """
+                with bought as (
+                    select distinct oi.product_id
+                    from order_items oi
+                    join orders o on o.id = oi.order_id and o.status <> 'CANCELLED'
+                    where o.user_id = :userId and oi.product_id is not null
+                ),
+                candidates as (
+                    select oi2.product_id, 3 as score
+                    from order_items oi1
+                    join order_items oi2 on oi2.order_id = oi1.order_id and oi2.product_id <> oi1.product_id
+                    join orders o on o.id = oi1.order_id and o.status <> 'CANCELLED'
+                    where oi1.product_id in (select product_id from bought)
+                    union all
+                    select p.id, case when p.type_id in (select bp.type_id from products bp
+                                                         where bp.id in (select product_id from bought)) then 2 else 1 end
+                    from products p
+                    where p.category_id in (select bp.category_id from products bp
+                                            where bp.id in (select product_id from bought))
+                )
+                select c.product_id
+                from candidates c
+                join products p on p.id = c.product_id
+                where p.status = 'PUBLISHED' and p.price is not null and p.cover_key is not null
+                  and (p.stock_quantity is null or p.stock_quantity > 0)
+                  and c.product_id not in (select product_id from bought)
+                group by c.product_id
+                order by sum(c.score) desc, random()
+                limit :limit
+                """;
+        return jdbc.queryForList(sql, new MapSqlParameterSource().addValue("userId", userId).addValue("limit", limit),
+                Long.class);
+    }
+
+    /** A random product with a photo that can be bought now; limited to the given categories when they are set. */
+    public Long randomAvailable(List<String> categorySlugs) {
+        MapSqlParameterSource params = new MapSqlParameterSource();
+        StringBuilder sql = new StringBuilder("""
+                select p.id
+                from products p
+                join categories c on c.id = p.category_id
+                where p.status = 'PUBLISHED' and p.price is not null and p.cover_key is not null
+                  and (p.stock_quantity is null or p.stock_quantity > 0)
+                """);
+        if (!categorySlugs.isEmpty()) {
+            sql.append(" and c.slug in (:slugs)");
+            params.addValue("slugs", categorySlugs);
+        }
+        sql.append(" order by random() limit 1");
+        return jdbc.queryForList(sql.toString(), params, Long.class).stream().findFirst().orElse(null);
+    }
+
     private void appendWhere(StringBuilder sql, MapSqlParameterSource params, ProductQuery query, Set<Dimension> exclude) {
         sql.append(" where p.status = 'PUBLISHED' and p.price is not null");
         if (query.text() != null) {

@@ -108,6 +108,12 @@ export interface BrandRef {
   name: string
 }
 
+export interface GiftPick {
+  product: ProductCard | null
+  /** Picked from the shopper's own purchases rather than at random. */
+  personal: boolean
+}
+
 export interface ProductCard {
   id: number
   slug: string

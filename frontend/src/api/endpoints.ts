@@ -8,6 +8,7 @@ import type {
   CheckoutResponse,
   DeliveryMethod,
   Facets,
+  GiftPick,
   Home,
   Order,
   OrderSummary,
@@ -69,6 +70,7 @@ export const catalogApi = {
   product: (slug: string) => data(api.get<ProductDetail>(`/catalog/products/${encodeURIComponent(slug)}`)),
   related: (slug: string) => data(api.get<Related>(`/catalog/products/${encodeURIComponent(slug)}/related`)),
   view: (slug: string) => api.post(`/catalog/products/${encodeURIComponent(slug)}/view`).catch(() => undefined),
+  giftPick: () => data(api.get<GiftPick>('/catalog/gift-pick')),
   cards: (ids: number[]) => data(api.get<ProductCard[]>('/catalog/cards', { params: { ids: ids.join(',') } })),
 }
 

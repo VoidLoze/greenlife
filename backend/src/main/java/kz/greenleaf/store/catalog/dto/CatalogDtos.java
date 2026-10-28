@@ -139,6 +139,10 @@ public final class CatalogDtos {
             implements Serializable {
     }
 
+    /** One product for the home-page gift block; {@code personal} — picked from the shopper's own purchases. */
+    public record GiftPickDto(ProductCardDto product, boolean personal) {
+    }
+
     public record HomeDto(List<ProductCardDto> featured, List<ProductCardDto> bestsellers,
                           List<ProductCardDto> newest, List<CategoryDto> categories, long productCount)
             implements Serializable {

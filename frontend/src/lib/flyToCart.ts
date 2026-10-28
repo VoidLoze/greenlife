@@ -6,8 +6,8 @@ function visible(el: Element | null): el is HTMLElement {
 
 /** The product photo nearest to the clicked button: the card's own, or the open carousel slide. */
 function sourceImage(from: Element): HTMLImageElement | null {
-  const card = from.closest('.product-card')
-  if (card) return card.querySelector('.product-visual img')
+  const card = from.closest('.product-card, .gift-pick')
+  if (card) return card.querySelector('.product-visual img, .gift-pick-visual img')
   for (let el = from.parentElement; el; el = el.parentElement) {
     const img = el.querySelector<HTMLImageElement>('.carousel-slide[aria-hidden="false"] img, .carousel-slide img')
     if (img) return img

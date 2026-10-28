@@ -8,6 +8,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import kz.greenleaf.store.catalog.domain.Category;
@@ -19,6 +20,7 @@ import kz.greenleaf.store.catalog.dto.CatalogDtos.BrandRef;
 import kz.greenleaf.store.catalog.dto.CatalogDtos.CategoryDto;
 import kz.greenleaf.store.catalog.dto.CatalogDtos.CategoryRef;
 import kz.greenleaf.store.catalog.dto.CatalogDtos.FacetsDto;
+import kz.greenleaf.store.catalog.dto.CatalogDtos.GiftPickDto;
 import kz.greenleaf.store.catalog.dto.CatalogDtos.HomeDto;
 import kz.greenleaf.store.catalog.dto.CatalogDtos.ProductCardDto;
 import kz.greenleaf.store.catalog.dto.CatalogDtos.ProductDetailDto;
@@ -53,6 +55,9 @@ public class CatalogService {
     private static final int RELATED_LIMIT = 8;
     private static final int HOME_SECTION_SIZE = 8;
     private static final int SUGGEST_PRODUCTS = 8;
+    private static final int GIFT_CANDIDATES = 8;
+    /** Without purchases to go on, the gift idea comes from perfume, cosmetics and home fragrances. */
+    private static final List<String> GIFT_CATEGORIES = List.of("makeup", "face-care", "home-fragrance");
 
     private final ProductRepository products;
     private final ProductMediaRepository media;
@@ -190,6 +195,26 @@ public class CatalogService {
         long total = search.count(ProductQuery.all(false, false, null, 1));
         List<CategoryDto> categoryList = categories();
         return new HomeDto(loadCards(featured), loadCards(bestsellers), loadCards(newest), categoryList, total);
+    }
+
+    /** Not cached: a fresh pick on every visit. */
+    public GiftPickDto giftPick(Long userId) {
+        if (userId != null) {
+            List<Long> recommended = search.recommendedFor(userId, GIFT_CANDIDATES);
+            if (!recommended.isEmpty()) {
+                Long id = recommended.get(ThreadLocalRandom.current().nextInt(recommended.size()));
+                List<ProductCardDto> cards = loadCards(List.of(id));
+                if (!cards.isEmpty()) {
+                    return new GiftPickDto(cards.getFirst(), true);
+                }
+            }
+        }
+        Long id = search.randomAvailable(GIFT_CATEGORIES);
+        if (id == null) {
+            id = search.randomAvailable(List.of());
+        }
+        List<ProductCardDto> cards = id == null ? List.of() : loadCards(List.of(id));
+        return new GiftPickDto(cards.isEmpty() ? null : cards.getFirst(), false);
     }
 
     /** Favorites and recently viewed live in the browser as ids; hidden or deleted products simply drop out. */

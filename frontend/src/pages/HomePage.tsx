@@ -4,10 +4,11 @@ import { useQuery } from '@tanstack/react-query'
 import { catalogApi } from '@/api/endpoints'
 import type { ProductCard } from '@/api/types'
 import { ProductGrid, ProductRail } from '@/components/ProductCard'
+import { GiftPick } from '@/components/GiftPick'
 import { RecentlyViewed } from '@/components/SavedProducts'
 import { CardGiftBanner, DeliveryNote, Marquee } from '@/components/Promo'
-import { MARQUEE_TEXT, PARTNERSHIP_FORMULA } from '@/content/promo'
-import { VideoPlayer } from '@/components/VideoPlayer'
+import { MARQUEE_SENTENCES, PARTNERSHIP_FORMULA } from '@/content/promo'
+import { HomeReels } from '@/components/HomeReels'
 import { useT } from '@/i18n'
 import { categoryIcon } from '@/lib/categoryIcon'
 import { useSettings } from '@/lib/hooks'
@@ -43,24 +44,18 @@ export default function HomePage() {
 
   return (
     <>
-      <Marquee text={MARQUEE_TEXT} to="/partner" />
+      <Marquee sentences={MARQUEE_SENTENCES} to="/partner" />
 
       <section className="home-hero">
         <div className="home-logo">
           <img src="/logo-full.webp" alt="Greenleaf family — Born for Beauty" width={1600} height={266} fetchPriority="high" />
         </div>
         <h1 className="home-slogan">{t.heroTitle}</h1>
-        <p className="home-lead">{t.heroText}</p>
+        <Link to="/partner" className="home-lead">
+          {t.heroText}
+        </Link>
 
-        {settings?.companyVideoUrl && (
-          <figure className="home-video">
-            <VideoPlayer url={settings.companyVideoUrl} title={settings.companyVideoTitle} showTitle={false} />
-            <figcaption>
-              <span className="eyebrow">{t.companyVideo}</span>
-              {settings.companyVideoTitle && <strong>{settings.companyVideoTitle}</strong>}
-            </figcaption>
-          </figure>
-        )}
+        <HomeReels />
 
         <div className="home-entries">
           <Link to="/catalog" className="home-entry">
@@ -111,6 +106,7 @@ export default function HomePage() {
         </div>
 
         <DeliveryNote />
+        <GiftPick />
       </section>
 
       {data && data.categories.length > 0 && (
