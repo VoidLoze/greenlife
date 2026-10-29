@@ -253,7 +253,7 @@ export default function CategoriesPage() {
         </div>
       ) : (
         <div className="table-wrap">
-          <table className="table">
+          <table className="table cards">
             <thead>
               <tr>
                 <th>#</th>
@@ -266,15 +266,15 @@ export default function CategoriesPage() {
             <tbody>
               {data.map((c) => (
                 <tr key={c.id}>
-                  <td className="muted">{c.sortOrder}</td>
-                  <td>
+                  <td className="muted cell-side cell-sort">{c.sortOrder}</td>
+                  <td className="cell-main">
                     <strong>
                       {categoryIcon(c.icon)} {c.nameRu}
                     </strong>
                     {c.nameKk && <span className="muted small" style={{ display: 'block' }}>{c.nameKk}</span>}
                     <span className="muted small" style={{ display: 'block' }}>{c.slug}</span>
                   </td>
-                  <td>
+                  <td className="cell-wide" data-label="Виды товаров">
                     <div className="type-tags">
                       {c.types.map((type) => (
                         <button
@@ -297,12 +297,12 @@ export default function CategoriesPage() {
                       </button>
                     </div>
                   </td>
-                  <td className="num">
+                  <td className="num" data-label="Товаров">
                     <Link to={`/admin/products?categoryId=${c.id}`} className="btn-link">
                       {c.productCount}
                     </Link>
                   </td>
-                  <td className="actions">
+                  <td className="actions cell-end">
                     <div className="row" style={{ gap: 4, justifyContent: 'flex-end' }}>
                       <button type="button" className="btn btn-ghost btn-sm" onClick={() => setEditing(c)}>
                         Изменить

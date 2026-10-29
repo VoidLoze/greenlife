@@ -99,7 +99,7 @@ export default function BrandsPage() {
         </div>
       ) : (
         <div className="table-wrap">
-          <table className="table">
+          <table className="table cards">
             <thead>
               <tr>
                 <th>Бренд</th>
@@ -111,17 +111,17 @@ export default function BrandsPage() {
             <tbody>
               {filtered.map((b) => (
                 <tr key={b.id}>
-                  <td>
+                  <td className="cell-main">
                     <strong>{b.name}</strong>
                     {b.description && <span className="muted small" style={{ display: 'block' }}>{b.description.slice(0, 100)}</span>}
                   </td>
-                  <td className="muted">{b.slug}</td>
-                  <td className="num">
+                  <td className="muted" data-label="Slug">{b.slug}</td>
+                  <td className="num" data-label="Товаров">
                     <Link to={`/admin/products?brandId=${b.id}`} className="btn-link">
                       {b.productCount}
                     </Link>
                   </td>
-                  <td className="actions">
+                  <td className="actions cell-end">
                     <div className="row" style={{ gap: 4, justifyContent: 'flex-end' }}>
                       <button type="button" className="btn btn-ghost btn-sm" onClick={() => setEditing(b)}>
                         Изменить

@@ -28,7 +28,6 @@ public final class ProductQuality {
             new Check(5, "Заполните характеристики", p -> !p.getAttributes().isEmpty()),
             new Check(3, "Укажите объём или вес", p -> notBlank(p.getVolume())),
             new Check(3, "Добавьте ещё фото (лучше 3+)", p -> countMedia(p, MediaKind.PHOTO) >= 3),
-            new Check(2, "Добавьте скрин из каталога", p -> hasMedia(p, MediaKind.SCREENSHOT)),
             new Check(5, "Переведите название на казахский", p -> notBlank(p.getNameKk())),
             new Check(2, "Переведите краткое описание на казахский", p -> notBlank(p.getSummaryKk())));
 

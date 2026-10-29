@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect } from 'react'
 import { createBrowserRouter, RouterProvider, useParams } from 'react-router'
 import { CartSync } from '@/components/CartSync'
+import { FavoritesSync } from '@/components/FavoritesSync'
 import { RequireAdmin, RequireAuth } from '@/components/Guards'
 import { Layout } from '@/components/Layout'
 import { RouteError } from '@/components/RouteError'
@@ -102,6 +103,7 @@ export default function App() {
   return (
     <>
       <CartSync />
+      <FavoritesSync />
       <RouterProvider router={router} />
       <Toasts />
     </>

@@ -38,7 +38,6 @@ let nextQueueId = 1
 function guessKind(file: File, fallback: MediaKind): MediaKind {
   if (isVideoFile(file)) return 'VIDEO'
   if (!IMAGE_TYPES.includes(file.type)) return 'DOCUMENT'
-  if (/(screen|скрин|снимок|catalog|каталог|page)/i.test(file.name)) return 'SCREENSHOT'
   return fallback === 'DOCUMENT' || fallback === 'VIDEO' ? 'PHOTO' : fallback
 }
 
@@ -50,7 +49,7 @@ function validateFile(file: File, kind: MediaKind): string | null {
   if (isVideoFile(file)) return 'Это видео — выберите тип «Видео»'
   if (file.size > MAX_BYTES) return `Файл больше 25 МБ (${fileSize(file.size)})`
   const isImage = IMAGE_TYPES.includes(file.type)
-  if (kind !== 'DOCUMENT' && !isImage) return 'Для фото и скринов: JPG, PNG, WEBP или GIF'
+  if (kind !== 'DOCUMENT' && !isImage) return 'Для фото: JPG, PNG, WEBP или GIF'
   if (kind === 'DOCUMENT' && !isImage && !DOC_EXT.test(file.name)) return 'Документы: PDF, DOC/DOCX, XLS/XLSX, TXT или изображения'
   return null
 }
@@ -170,7 +169,7 @@ function UploadQueue({ productId, onUploaded }: { productId: number; onUploaded:
         <UploadIcon size={30} />
         <strong>Перетащите файлы сюда или нажмите, чтобы выбрать</strong>
         <span className="muted small">
-          Фото и скрины: JPG, PNG, WEBP, GIF · Документы: PDF, DOC, XLS, TXT · до 25 МБ · Видео: MP4, WEBM, MOV до 200 МБ
+          Фото: JPG, PNG, WEBP, GIF · Документы: PDF, DOC, XLS, TXT · до 25 МБ · Видео: MP4, WEBM, MOV до 200 МБ
         </span>
         <div className="row" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
           <span className="muted small">Тип по умолчанию:</span>
@@ -182,7 +181,6 @@ function UploadQueue({ productId, onUploaded }: { productId: number; onUploaded:
             onChange={setDefaultKind}
             options={[
               { value: 'PHOTO', label: 'Фото' },
-              { value: 'SCREENSHOT', label: 'Скрин' },
               { value: 'DOCUMENT', label: 'Документ' },
             ]}
           />
@@ -222,8 +220,7 @@ function UploadQueue({ productId, onUploaded }: { productId: number; onUploaded:
                       onChange={(kind) => patch(item.id, { kind })}
                       options={[
                         { value: 'PHOTO', label: 'Фото' },
-                        { value: 'SCREENSHOT', label: 'Скрин' },
-                        { value: 'DOCUMENT', label: 'Документ' },
+                                  { value: 'DOCUMENT', label: 'Документ' },
                         { value: 'VIDEO', label: 'Видео' },
                       ]}
                     />
@@ -294,13 +291,12 @@ function MediaEditModal({ media, productId, onClose, onSaved }: { media: Media; 
           {media.width ? ` · ${media.width}×${media.height}` : ''}
         </span>
         {!isVideo && (
-          <Field label="Тип" hint={!isImage ? 'Фото и скрином может быть только изображение' : undefined}>
+          <Field label="Тип" hint={!isImage ? 'Фото может быть только изображение' : undefined}>
             <Select<MediaKind>
               value={kind}
               onChange={setKind}
               options={[
                 { value: 'PHOTO', label: 'Фото', disabled: !isImage },
-                { value: 'SCREENSHOT', label: 'Скрин', disabled: !isImage },
                 { value: 'DOCUMENT', label: 'Документ' },
               ]}
             />
@@ -498,7 +494,7 @@ export function MediaManager({ product, onChanged }: { product: AdminProduct | n
   if (!product) {
     return (
       <div className="notice">
-        Сначала сохраните товар — после этого можно будет загрузить фото, скрины из каталога и документы (сертификаты, инструкции).
+        Сначала сохраните товар — после этого можно будет загрузить фото, видео и документы (сертификаты, инструкции).
       </div>
     )
   }
@@ -507,7 +503,7 @@ export function MediaManager({ product, onChanged }: { product: AdminProduct | n
     <div className="stack" style={{ gap: 22 }}>
       <UploadQueue productId={product.id} onUploaded={onChanged} />
       <div>
-        {(['PHOTO', 'VIDEO', 'SCREENSHOT', 'DOCUMENT'] as MediaKind[]).map((kind) => (
+        {(['PHOTO', 'VIDEO', 'DOCUMENT'] as MediaKind[]).map((kind) => (
           <MediaGroup
             key={kind}
             kind={kind}

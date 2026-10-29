@@ -4,6 +4,7 @@ import { authApi } from '@/api/endpoints'
 import type { AuthResponse, User } from '@/api/types'
 import { onAccountChange } from '@/lib/session'
 import { useCartStore } from './cart'
+import { useFavoritesStore } from './favorites'
 
 type Status = 'loading' | 'authenticated' | 'anonymous'
 
@@ -25,7 +26,10 @@ function setSession(status: Status, user: User | null, known = true) {
   const previous = useAuthStore.getState().user?.id ?? null
   useAuthStore.setState({ status, user })
   onAccountChange(previous, user?.id ?? null)
-  if (known) useCartStore.getState().claim(user?.id ?? null)
+  if (known) {
+    useCartStore.getState().claim(user?.id ?? null)
+    useFavoritesStore.getState().claim(user?.id ?? null)
+  }
 }
 
 const RETRY_DELAYS = [3_000, 10_000, 30_000]
@@ -53,7 +57,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
   apply: (auth) => {
-    tokenStore.set(auth.accessToken)
+    tokenStore.set(auth.accessToken, auth.user.id)
     setSession('authenticated', auth.user)
   },
   setUser: (user) => set({ user }),
@@ -83,6 +87,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 tokenStore.onChange((auth) => {
   if (auth) setSession('authenticated', auth.user)
   else setSession('anonymous', null)
+})
+
+/** Signing in or out in another tab of this browser applies here too, so no tab keeps showing a finished account. */
+sessionHint.onOtherTab((userId) => {
+  const { user, signOutLocally } = useAuthStore.getState()
+  if (userId === null) {
+    if (user) signOutLocally()
+  } else if (user?.id !== userId) {
+    refreshSession().catch(() => undefined)
+  }
 })
 
 export const useIsAdmin = () => useAuthStore((s) => s.user?.role === 'ADMIN')

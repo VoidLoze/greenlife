@@ -9,22 +9,33 @@ let accessToken: string | null = null
 let refreshInFlight: Promise<AuthResponse | null> | null = null
 const listeners = new Set<(auth: AuthResponse | null) => void>()
 
-/** Not a credential: only tells the app whether a refresh attempt on startup can succeed at all. */
+/**
+ * Not a credential: the id of the account signed in in this browser. Tells the app whether a refresh attempt on
+ * startup can succeed at all, and lets the other open tabs follow a sign-in or sign-out.
+ */
 const SESSION_HINT_KEY = 'gl-has-session'
 
 export const sessionHint = {
-  exists: () => localStorage.getItem(SESSION_HINT_KEY) === '1',
-  set: (present: boolean) => {
-    if (present) localStorage.setItem(SESSION_HINT_KEY, '1')
+  exists: () => localStorage.getItem(SESSION_HINT_KEY) !== null,
+  set: (userId: number | null) => {
+    if (userId != null) localStorage.setItem(SESSION_HINT_KEY, String(userId))
     else localStorage.removeItem(SESSION_HINT_KEY)
+  },
+  /** Fires only for changes made by other tabs (the browser's storage event). */
+  onOtherTab: (listener: (userId: number | null) => void) => {
+    window.addEventListener('storage', (e) => {
+      if (e.key !== SESSION_HINT_KEY && e.key !== null) return
+      const value = localStorage.getItem(SESSION_HINT_KEY)
+      listener(value === null ? null : Number(value))
+    })
   },
 }
 
 export const tokenStore = {
   get: () => accessToken,
-  set: (token: string | null) => {
+  set: (token: string | null, userId: number | null = null) => {
     accessToken = token
-    sessionHint.set(token !== null)
+    sessionHint.set(token !== null ? userId : null)
   },
   onChange: (listener: (auth: AuthResponse | null) => void) => {
     listeners.add(listener)
@@ -54,7 +65,7 @@ export function refreshSession(): Promise<AuthResponse | null> {
     refreshInFlight = axios
       .post<AuthResponse>('/api/auth/refresh', null, { withCredentials: true, timeout: 20_000 })
       .then((res) => {
-        tokenStore.set(res.data.accessToken)
+        tokenStore.set(res.data.accessToken, res.data.user.id)
         listeners.forEach((l) => l(res.data))
         return res.data
       })

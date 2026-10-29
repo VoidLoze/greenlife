@@ -162,7 +162,7 @@ export default function ProductsPage() {
         </div>
       ) : (
         <div className="table-wrap" style={{ opacity: list.isPlaceholderData ? 0.6 : 1 }}>
-          <table className="table">
+          <table className="table cards">
             <thead>
               <tr>
                 <th />
@@ -180,8 +180,8 @@ export default function ProductsPage() {
             <tbody>
               {data?.items.map((p) => (
                 <tr key={p.id}>
-                  <td>{p.thumbUrl ? <img className="thumb" src={p.thumbUrl} alt="" loading="lazy" /> : <span className="thumb-ph">нет</span>}</td>
-                  <td className="name-cell">
+                  <td className="cell-thumb">{p.thumbUrl ? <img className="thumb" src={p.thumbUrl} alt="" loading="lazy" /> : <span className="thumb-ph">нет</span>}</td>
+                  <td className="name-cell cell-main">
                     <Link to={`/admin/products/${p.id}`}>{p.nameRu}</Link>
                     <span className="muted small">
                       {p.sku}
@@ -190,22 +190,22 @@ export default function ProductsPage() {
                       {p.featured ? ' · ★' : ''}
                     </span>
                   </td>
-                  <td>
+                  <td className="span-2" data-label="Статус">
                     <span className={`badge ${productStatusBadge[p.status]}`}>{productStatusLabel[p.status]}</span>
                   </td>
-                  <td className="num">{money(p.price)}</td>
-                  <td className="num muted">{p.partnerPrice != null ? money(p.partnerPrice) : 'авто'}</td>
-                  <td className="num" style={{ color: p.stockQuantity != null && p.stockQuantity <= 5 ? 'var(--warning)' : undefined }}>
+                  <td className="num" data-label="Цена">{money(p.price)}</td>
+                  <td className="num muted" data-label="Партн.">{p.partnerPrice != null ? money(p.partnerPrice) : 'авто'}</td>
+                  <td className="num" data-label="Остаток" style={{ color: p.stockQuantity != null && p.stockQuantity <= 5 ? 'var(--warning)' : undefined }}>
                     {p.stockQuantity ?? '∞'}
                   </td>
-                  <td>
+                  <td data-label="Карточка">
                     <CompletenessBar score={p.completeness} />
                   </td>
-                  <td className="num muted">
+                  <td className="num muted" data-label="Прод./Просм.">
                     {p.soldCount} / {p.viewCount}
                   </td>
-                  <td className="muted small nowrap">{dateTime(p.updatedAt)}</td>
-                  <td className="actions">
+                  <td className="muted small nowrap span-2" data-label="Изменён">{dateTime(p.updatedAt)}</td>
+                  <td className="actions cell-actions">
                     <div className="row" style={{ gap: 4, justifyContent: 'flex-end' }}>
                       {p.status === 'PUBLISHED' ? (
                         <button type="button" className="btn btn-ghost btn-sm" onClick={() => status.mutate({ id: p.id, status: 'DRAFT' })} title="Снять с витрины">

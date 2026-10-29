@@ -1141,6 +1141,7 @@ a.brand:focus-visible .brand-plate { box-shadow: var(--focus-ring); }
 .carousel-track.dragging { transition: none; }
 
 .carousel-slide {
+  position: relative;
   flex: 0 0 100%;
   height: 100%;
   display: grid;
@@ -1148,9 +1149,8 @@ a.brand:focus-visible .brand-plate { box-shadow: var(--focus-ring); }
   min-width: 0;
 }
 
-.carousel-slide > img { width: 100%; height: 100%; object-fit: contain; padding: 24px; user-select: none; }
-.carousel-slide.screenshot { background: #f4efe6; }
-.carousel-slide.screenshot > img { padding: 0; object-fit: cover; object-position: top; }
+/* Pinned to the slide: in the grid a tall narrow photo would otherwise take its own height and spill past the frame. */
+.carousel-slide > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; padding: 24px; user-select: none; }
 
 .carousel-slide:has(.video-frame) { background: #02130e; padding: 0; }
 .carousel-slide .video-frame { width: 100%; border-radius: 0; border: 0; }

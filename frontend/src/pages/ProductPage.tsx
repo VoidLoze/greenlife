@@ -8,7 +8,7 @@ import type { Media, ProductDetail } from '@/api/types'
 import { BuyBox, MobileBuyBar } from '@/components/BuyBox'
 import { ChevronLeft } from '@/components/Icons'
 import { Lightbox } from '@/components/Lightbox'
-import { MediaCarousel, productSlides, screenshotSlides, type Slide } from '@/components/MediaCarousel'
+import { MediaCarousel, productSlides, type Slide } from '@/components/MediaCarousel'
 import { ProductRail } from '@/components/ProductCard'
 import { RecentlyViewed } from '@/components/SavedProducts'
 import { EmptyState, PageLoader } from '@/components/ui'
@@ -23,18 +23,16 @@ function extensionOf(media: Media) {
   return ext.length > 4 ? 'FILE' : ext
 }
 
-type GalleryTab = { id: 'media' | 'shots' | 'docs'; label: string; count: number; slides: Slide[] }
+type GalleryTab = { id: 'media' | 'docs'; label: string; count: number; slides: Slide[] }
 
 function Gallery({ product }: { product: ProductDetail }) {
   const { t } = useT()
   const tabs = useMemo(() => {
-    const media = productSlides(product, false)
+    const media = productSlides(product)
     const hasVideo = media.some((s) => s.type === 'video')
-    const shots = screenshotSlides(product)
     return (
       [
         { id: 'media', label: hasVideo ? t.videoAndPhotos : t.photos, count: media.length, slides: media },
-        { id: 'shots', label: t.screenshots, count: shots.length, slides: shots },
         { id: 'docs', label: t.documents, count: product.documents.length, slides: [] },
       ] as GalleryTab[]
     ).filter((tab) => tab.count > 0)

@@ -1,5 +1,6 @@
 import type { DeliveryMethod, PaymentMethod } from '@/api/types'
 import { useCartStore } from '@/store/cart'
+import { useFavoritesStore } from '@/store/favorites'
 import { queryClient } from './queryClient'
 
 export interface SavedContact {
@@ -52,12 +53,13 @@ function clearTabData() {
   }
 }
 
-const PRIVATE_QUERIES = new Set(['admin', 'my-orders', 'my-order', 'my-order-wa', 'quote'])
+const PRIVATE_QUERIES = new Set(['admin', 'my-orders', 'my-order', 'my-order-wa', 'quote', 'gift-pick'])
 
 /**
  * Runs synchronously on every change of the signed-in account, before the UI re-renders:
- * an account that leaves takes its cart, contacts, receipts and private queries with it (the cart stays saved on
- * the server and comes back on the next login); a guest's details are never prefilled into an account.
+ * an account that leaves takes its cart, favourites, recently viewed, contacts, receipts and private queries with it
+ * (cart and lists stay saved on the server and come back on the next login); a guest's details are never prefilled
+ * into an account.
  */
 export function onAccountChange(previousUserId: number | null, nextUserId: number | null) {
   if (previousUserId === nextUserId) return
@@ -65,6 +67,7 @@ export function onAccountChange(previousUserId: number | null, nextUserId: numbe
     clearTabData()
     useCartStore.getState().clear()
     useCartStore.getState().closeDrawer()
+    useFavoritesStore.getState().clear()
     queryClient.removeQueries({ predicate: (q) => PRIVATE_QUERIES.has(String(q.queryKey[0])) })
   }
   if (nextUserId != null) sessionStorage.removeItem(GUEST_CONTACT_KEY)

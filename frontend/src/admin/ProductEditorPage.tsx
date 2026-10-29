@@ -309,7 +309,7 @@ export default function ProductEditorPage() {
       setInitial(f)
       queryClient.invalidateQueries({ queryKey: ['admin', 'brands'] })
       if (isNew) {
-        toast.success('Товар создан. Теперь добавьте фото, скрины и документы.')
+        toast.success('Товар создан. Теперь добавьте фото, видео и документы.')
         allowLeave.current = true
         navigate(`/admin/products/${p.id}?tab=media`, { replace: true })
       } else {
@@ -740,7 +740,7 @@ export default function ProductEditorPage() {
                 )}
               </section>
               <section className="panel editor-section">
-                <h3>Фото, видео, скрины и документы</h3>
+                <h3>Фото, видео и документы</h3>
                 {product ? (
                   <>
                     <p className="muted small">

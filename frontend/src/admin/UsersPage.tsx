@@ -115,7 +115,7 @@ export default function UsersPage() {
         </div>
       ) : (
         <div className="table-wrap" style={{ opacity: list.isPlaceholderData ? 0.6 : 1 }}>
-          <table className="table">
+          <table className="table cards">
             <thead>
               <tr>
                 <th>Пользователь</th>
@@ -133,13 +133,13 @@ export default function UsersPage() {
                 const self = u.id === me?.id
                 return (
                   <tr key={u.id}>
-                    <td>
+                    <td className="cell-main">
                       <strong>{u.fullName}</strong>
                       {self && <span className="badge badge-green" style={{ marginLeft: 6 }}>вы</span>}
                       <span className="muted small" style={{ display: 'block' }}>{u.email}</span>
                     </td>
-                    <td className="muted">{u.phone ?? '—'}</td>
-                    <td>
+                    <td className="muted" data-label="Телефон">{u.phone ?? '—'}</td>
+                    <td className="span-2" data-label="Роль">
                       <Select<Role>
                         aria-label={`Роль: ${u.fullName}`}
                         size="sm"
@@ -157,10 +157,10 @@ export default function UsersPage() {
                         ]}
                       />
                     </td>
-                    <td>
+                    <td data-label="Партнёр">
                       <Toggle checked={u.partner} disabled={update.isPending} label="Партнёр" onChange={(v) => update.mutate({ id: u.id, body: { partner: v } })} />
                     </td>
-                    <td>
+                    <td data-label="Активен">
                       <Toggle
                         checked={u.enabled}
                         disabled={self || update.isPending}
@@ -168,9 +168,9 @@ export default function UsersPage() {
                         onChange={(v) => (v || window.confirm(`Заблокировать ${u.fullName}?`)) && update.mutate({ id: u.id, body: { enabled: v } })}
                       />
                     </td>
-                    <td className="muted nowrap">{dateTime(u.createdAt)}</td>
-                    <td className="muted nowrap">{dateTime(u.lastLoginAt)}</td>
-                    <td>
+                    <td className="muted nowrap" data-label="Регистрация">{dateTime(u.createdAt)}</td>
+                    <td className="muted nowrap span-half" data-label="Последний вход">{dateTime(u.lastLoginAt)}</td>
+                    <td className="cell-end">
                       {!self && (
                         <button
                           type="button"

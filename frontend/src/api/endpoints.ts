@@ -94,6 +94,16 @@ export const cartApi = {
   current: () => data(api.get<Quote>('/cart')),
 }
 
+export interface SavedLists {
+  favorites: number[]
+  viewed: number[]
+}
+
+export const favoritesApi = {
+  replace: (lists: SavedLists) => data(api.put<SavedLists>('/favorites', lists)),
+  merge: (lists: SavedLists) => data(api.post<SavedLists>('/favorites/merge', lists)),
+}
+
 export const ordersApi = {
   checkout: (body: CheckoutRequest) => data(api.post<CheckoutResponse>('/orders', body)),
   mine: (page = 0) => data(api.get<Page<OrderSummary>>('/orders/my', { params: { page, size: 10 } })),

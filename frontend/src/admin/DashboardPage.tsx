@@ -5,7 +5,7 @@ import { adminApi, type Dashboard, type ProductStat } from '@/api/admin'
 import { statusBadge } from '@/components/OrderView'
 import { PageLoader } from '@/components/ui'
 import { dateTime, money, shortDate } from '@/lib/format'
-import { useDocumentTitle } from '@/lib/hooks'
+import { useDocumentTitle, useIsPhone } from '@/lib/hooks'
 import { AdminHead } from './shared'
 
 function delta(current: number, previous: number) {
@@ -16,8 +16,10 @@ function delta(current: number, previous: number) {
 
 function RevenueChart({ daily }: { daily: Dashboard['daily'] }) {
   const [hover, setHover] = useState<number | null>(null)
-  const width = 760
-  const height = 220
+  const phone = useIsPhone()
+  const width = phone ? 360 : 760
+  const height = phone ? 180 : 220
+  const labelEvery = phone ? 7 : 5
   const pad = { top: 16, bottom: 26, left: 8, right: 8 }
   const max = Math.max(1, ...daily.map((d) => Number(d.revenue)))
   const bw = (width - pad.left - pad.right) / Math.max(1, daily.length)
@@ -48,7 +50,7 @@ function RevenueChart({ daily }: { daily: Dashboard['daily'] }) {
             <g key={d.date} onMouseEnter={() => setHover(i)}>
               <rect x={x} y={pad.top} width={bw} height={height - pad.top - pad.bottom} fill="transparent" />
               <rect className="bar" x={x + bw * 0.15} y={height - pad.bottom - h} width={bw * 0.7} height={Math.max(h, d.orders ? 2 : 0)} rx={3} opacity={hover == null || hover === i ? 1 : 0.5} />
-              {i % 5 === 0 && (
+              {i % labelEvery === 0 && (
                 <text x={x + bw / 2} y={height - 8} textAnchor="middle">
                   {shortDate(d.date)}
                 </text>

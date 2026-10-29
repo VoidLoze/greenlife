@@ -7,10 +7,10 @@ import { VideoPlayer } from './VideoPlayer'
 
 export type Slide =
   | { key: string; type: 'video'; url: string; title: string | null; poster: string | null }
-  | { key: string; type: 'image'; media: Media; screenshot: boolean }
+  | { key: string; type: 'image'; media: Media }
 
-/** Video goes first (the admin link, then uploaded files), then photos, then (optionally) screenshots. */
-export function productSlides(product: ProductDetail, withScreenshots = true): Slide[] {
+/** Video goes first (the admin link, then uploaded files), then photos. */
+export function productSlides(product: ProductDetail): Slide[] {
   const slides: Slide[] = []
   if (product.videoUrl && parseVideo(product.videoUrl)) {
     slides.push({ key: 'video-link', type: 'video', url: product.videoUrl, title: null, poster: null })
@@ -18,13 +18,8 @@ export function productSlides(product: ProductDetail, withScreenshots = true): S
   for (const v of product.videos ?? []) {
     slides.push({ key: `video-${v.id}`, type: 'video', url: v.url, title: v.title, poster: v.thumbUrl })
   }
-  for (const m of product.photos) slides.push({ key: `photo-${m.id}`, type: 'image', media: m, screenshot: false })
-  if (withScreenshots) slides.push(...screenshotSlides(product))
+  for (const m of product.photos) slides.push({ key: `photo-${m.id}`, type: 'image', media: m })
   return slides
-}
-
-export function screenshotSlides(product: ProductDetail): Slide[] {
-  return product.screenshots.map((m) => ({ key: `shot-${m.id}`, type: 'image', media: m, screenshot: true }))
 }
 
 function slideThumb(slide: Slide): string | null {
@@ -120,12 +115,12 @@ export function MediaCarousel({
           style={{ transform: `translateX(calc(${-current * 100}% + ${drag}px))` }}
         >
           {slides.map((slide, i) => (
-            <div key={slide.key} className={clsx('carousel-slide', slide.type === 'image' && slide.screenshot && 'screenshot')} aria-hidden={i !== current}>
+            <div key={slide.key} className="carousel-slide" aria-hidden={i !== current}>
               {slide.type === 'video' ? (
                 <VideoPlayer url={slide.url} title={slide.title} poster={slide.poster} active={i === current} />
               ) : (
                 <img
-                  src={slide.screenshot ? slide.media.url : (slide.media.thumbUrl ?? slide.media.url)}
+                  src={slide.media.thumbUrl ?? slide.media.url}
                   alt={slide.media.altText ?? slide.media.title ?? alt}
                   loading={Math.abs(i - current) <= 1 ? 'eager' : 'lazy'}
                   draggable={false}

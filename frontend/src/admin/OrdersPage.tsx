@@ -71,7 +71,7 @@ export default function OrdersPage() {
           </button>
         </div>
       )}
-      <div className="row wrap" style={{ marginBottom: 14 }}>
+      <div className="row wrap status-chips" style={{ marginBottom: 14 }}>
         <button type="button" className={`chip ${!filter.status ? 'active' : ''}`} onClick={() => setParam('status')}>
           Все
         </button>
@@ -90,7 +90,7 @@ export default function OrdersPage() {
         </div>
       ) : (
         <div className="table-wrap" style={{ opacity: list.isPlaceholderData ? 0.6 : 1 }}>
-          <table className="table">
+          <table className="table cards">
             <thead>
               <tr>
                 <th>Номер</th>
@@ -105,21 +105,21 @@ export default function OrdersPage() {
             <tbody>
               {data?.items.map((o) => (
                 <tr key={o.id} className="clickable" onClick={() => navigate(`/admin/orders/${o.id}`)}>
-                  <td>
+                  <td className="cell-main">
                     <strong>{o.number}</strong>
                     {o.priceTier === 'PARTNER' && <span className="badge badge-gold" style={{ marginLeft: 6 }}>★</span>}
                   </td>
-                  <td className="muted nowrap">{dateTime(o.createdAt)}</td>
-                  <td>
+                  <td className="muted nowrap" data-label="Дата">{dateTime(o.createdAt)}</td>
+                  <td className="span-2" data-label="Клиент">
                     {o.customerName}
                     <span className="muted small" style={{ display: 'block' }}>{o.phone}</span>
                   </td>
-                  <td className="muted">{o.deliveryMethod === 'DELIVERY' ? 'Доставка' : 'Самовывоз'}</td>
-                  <td>
+                  <td className="muted" data-label="Получение">{o.deliveryMethod === 'DELIVERY' ? 'Доставка' : 'Самовывоз'}</td>
+                  <td className="cell-side">
                     <span className={`badge ${statusBadge[o.status]}`}>{o.statusLabel}</span>
                   </td>
-                  <td className="num">{o.itemsCount}</td>
-                  <td className="num">
+                  <td className="num" data-label="Товаров, шт.">{o.itemsCount}</td>
+                  <td className="num" data-label="Сумма">
                     <strong>{money(o.total)}</strong>
                   </td>
                 </tr>

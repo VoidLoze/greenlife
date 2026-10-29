@@ -5,7 +5,7 @@ import '@/styles/admin.css'
 import clsx from 'clsx'
 import { adminApi } from '@/api/admin'
 import { BrandLogo } from '@/components/Brand'
-import { MenuIcon } from '@/components/Icons'
+import { BagIcon, GridIcon, HomeIcon, MenuIcon } from '@/components/Icons'
 import { useAuthStore } from '@/store/auth'
 import { toast } from '@/store/toast'
 
@@ -137,6 +137,31 @@ export default function AdminLayout() {
         </div>
         <Outlet />
       </div>
+      <nav className="tab-bar admin-tab-bar" aria-label="Админка">
+        <NavLink to="/admin" end>
+          <HomeIcon size={22} />
+          <span>Дашборд</span>
+        </NavLink>
+        <NavLink to="/admin/products" className={({ isActive }) => clsx(isActive && location.pathname !== '/admin/products/new' && 'active')}>
+          <GridIcon size={22} />
+          <span>Товары</span>
+        </NavLink>
+        <NavLink to="/admin/products/new" className="tab-card" aria-label="Новый товар">
+          <span className="tab-card-icon admin-tab-plus">+</span>
+          <span>Товар</span>
+        </NavLink>
+        <NavLink to="/admin/orders">
+          <span className="tab-icon">
+            <BagIcon size={22} />
+            {newOrders > 0 && <span className="cart-count">{newOrders}</span>}
+          </span>
+          <span>Заказы</span>
+        </NavLink>
+        <button type="button" className={clsx(open && 'active')} onClick={() => setOpen(true)}>
+          <MenuIcon size={22} />
+          <span>Меню</span>
+        </button>
+      </nav>
     </div>
   )
 }
